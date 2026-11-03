@@ -26,6 +26,12 @@ func unit(values ...float64) []float64 {
 	return out
 }
 
+func faceEmbedding(values ...float64) []float64 {
+	embedding := make([]float64, faceEmbeddingDimension)
+	copy(embedding, values)
+	return unit(embedding...)
+}
+
 func TestCosineSimilarity(t *testing.T) {
 	if got, ok := cosineSimilarity(unit(1, 0), unit(1, 0)); !ok || math.Abs(got-1) > 1e-9 {
 		t.Fatalf("identical vectors: got %v %v", got, ok)
@@ -94,7 +100,7 @@ func (f *fakeFace) server(t *testing.T) *httptest.Server {
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"status": "ok", "uptime_seconds": 1.5, "model_loaded": true,
-			"det_model": "face_detection/yolo-facev2s.onnx", "rec_model": "face_recognition/arcface_r50_fp16.onnx",
+			"det_model": "face_detection/scrfd_10g.onnx", "rec_model": "face_recognition/arcface_r50_fp16.onnx",
 		})
 	})
 	fail := func(w http.ResponseWriter) bool {
@@ -147,19 +153,49 @@ func (f *fakeFace) server(t *testing.T) *httptest.Server {
 }
 
 func TestEmbedFaceParsesPythonSchema(t *testing.T) {
-	fake := &fakeFace{embedding: unit(1, 2, 3)}
+	fake := &fakeFace{embedding: faceEmbedding(1, 2, 3)}
 	s := New(nil, Config{FaceServiceURL: fake.server(t).URL})
 	got, err := s.embedFace(context.Background(), []byte("jpeg-bytes"), "x.jpg")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(got.Embedding) != 3 || got.Confidence != 0.91 || got.ProcessingTimeMS != 12.5 {
+	if len(got.Embedding) != faceEmbeddingDimension || got.Confidence != 0.91 || got.ProcessingTimeMS != 12.5 {
 		t.Fatalf("unexpected parse: %+v", got)
 	}
 }
 
+func TestEmbedFaceRejectsInvalidServiceResponse(t *testing.T) {
+	tests := map[string]string{
+		"malformed JSON":    `{"embedding":`,
+		"missing embedding": `{"confidence":0.9,"processing_time_ms":1}`,
+	}
+	for name, payload := range tests {
+		t.Run(name, func(t *testing.T) {
+			service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = io.WriteString(w, payload)
+			}))
+			t.Cleanup(service.Close)
+			_, err := New(nil, Config{FaceServiceURL: service.URL}).embedFace(context.Background(), []byte("image"), "x.jpg")
+			if err == nil || !errors.Is(classifyFaceError(err), ErrFaceService) {
+				t.Fatalf("want face service protocol error, got %v", err)
+			}
+		})
+	}
+
+	t.Run("oversized response", func(t *testing.T) {
+		service := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			_, _ = io.WriteString(w, strings.Repeat("x", maxFaceServiceResponseBytes+1))
+		}))
+		t.Cleanup(service.Close)
+		_, err := New(nil, Config{FaceServiceURL: service.URL}).embedFace(context.Background(), []byte("image"), "x.jpg")
+		if err == nil || !errors.Is(classifyFaceError(err), ErrFaceService) {
+			t.Fatalf("want oversized face service response error, got %v", err)
+		}
+	})
+}
+
 func TestRegisterFacesSendsEveryPhoto(t *testing.T) {
-	fake := &fakeFace{templates: [][]float64{unit(1, 0), unit(1, 0.1), unit(1, 0.2)}}
+	fake := &fakeFace{templates: [][]float64{faceEmbedding(1, 0), faceEmbedding(1, 0.1), faceEmbedding(1, 0.2)}}
 	s := New(nil, Config{FaceServiceURL: fake.server(t).URL})
 	images := []EnrollImage{{Data: []byte("a"), Filename: "depan.jpg"}, {Data: []byte("b")}, {Data: []byte("c")}}
 	got, err := s.registerFaces(context.Background(), "student-241011001", images)
@@ -169,7 +205,7 @@ func TestRegisterFacesSendsEveryPhoto(t *testing.T) {
 	if fake.gotID != "student-241011001" || len(fake.gotFiles) != 3 || fake.gotFiles[1] != "foto-2.jpg" {
 		t.Fatalf("request not forwarded correctly: id=%q files=%v", fake.gotID, fake.gotFiles)
 	}
-	if got.NumTemplates != 3 || len(got.Templates) != 3 || len(got.Templates[2].Embedding) != 2 {
+	if got.NumTemplates != 3 || len(got.Templates) != 3 || len(got.Templates[2].Embedding) != faceEmbeddingDimension {
 		t.Fatalf("unexpected parse: %+v", got)
 	}
 }
@@ -257,11 +293,20 @@ func TestEnrollEmbeddingsRejectsBadInput(t *testing.T) {
 func TestFaceHealth(t *testing.T) {
 	service := (&fakeFace{}).server(t)
 	health := New(nil, Config{FaceServiceURL: service.URL}).faceHealth(context.Background())
-	if health["online"] != true || health["recognitionModel"] != "face_recognition/arcface_r50_fp16.onnx" {
+	if health["online"] != true || health["provider"] != "Python face service" ||
+		health["detectionModel"] != "face_detection/scrfd_10g.onnx" ||
+		health["recognitionModel"] != "face_recognition/arcface_r50_fp16.onnx" {
 		t.Fatalf("unexpected health: %+v", health)
 	}
 	if New(nil, Config{FaceServiceURL: "http://127.0.0.1:1"}).faceHealth(context.Background())["online"] != false {
 		t.Fatal("unreachable service must be offline")
+	}
+	initializing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"status": "initializing", "model_loaded": true})
+	}))
+	t.Cleanup(initializing.Close)
+	if New(nil, Config{FaceServiceURL: initializing.URL}).faceHealth(context.Background())["online"] != false {
+		t.Fatal("service not reporting status ok must be offline")
 	}
 }
 
@@ -280,7 +325,7 @@ func TestRegisterTimeoutScalesWithPhotoCount(t *testing.T) {
 		time.Sleep(time.Duration(n) * 70 * time.Millisecond) // ±70 ms per foto
 		templates := make([]map[string]any, n)
 		for i := range templates {
-			templates[i] = map[string]any{"embedding": unit(1, float64(i)/10), "confidence": 0.9}
+			templates[i] = map[string]any{"embedding": faceEmbedding(1, float64(i)/10), "confidence": 0.9}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"student_id": "x", "num_templates": n, "templates": templates})
 	})

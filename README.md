@@ -21,7 +21,7 @@ Untuk orientasi cepat AI/kontributor berikutnya, mulai dari
 | MongoDB (index + seed kelas/perangkat otomatis) | berjalan |
 | Firmware perangkat absensi ESP32 + ESP32-CAM (UART) (`devices/esp32_scanner`, `devices/esp32cam_uart`) | ada; lolos kompilasi, **belum diuji di perangkat keras** |
 | Firmware heartbeat ESP8266 (`devices/esp8266_ping`) | ada (uji koneksi) |
-| Face service Python (`services/face`, YOLO-FaceV2 + ArcFace) | ada; terhubung ke Go untuk enrollment & scan ([docs/face-service.md](docs/face-service.md)) |
+| Face service Python (`services/face`, SCRFD + ArcFace) | ada; terhubung ke Go untuk enrollment & scan ([docs/face-service.md](docs/face-service.md)) |
 | Penyimpanan foto wajah di Garage (S3) + retensi otomatis | ada, opsional (`S3_*`); tautan foto di halaman Log |
 | Test otomatis | unit test (`go test ./...`: face service, pencocokan, foto, klien S3, validasi akun dosen, render fragment); belum ada test MongoDB |
 
@@ -208,7 +208,7 @@ Wi-Fi dan `DEVICE_TOKEN` untuk ESP32 disimpan di
 
 ## Face service
 
-Face service ada di `services/face/` (FastAPI + ONNX Runtime: YOLO-FaceV2 untuk
+Face service ada di `services/face/` (FastAPI + ONNX Runtime: SCRFD untuk
 deteksi, ArcFace untuk embedding 512 dimensi). Layanan ini **stateless**: Go
 memanggil `POST /register` saat enrollment (1–6 foto pose berbeda → satu
 embedding per foto) dan `POST /embed` saat scan, lalu Go sendiri yang

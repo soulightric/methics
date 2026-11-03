@@ -123,6 +123,9 @@ func (s *Server) StaffHandler() http.Handler {
 	mux.HandleFunc("GET /api/v1/reports", s.reports)
 	mux.HandleFunc("POST /api/v1/students", s.createStudent)
 	mux.HandleFunc("POST /api/v1/students/{nim}/face-template", s.enrollFace)
+	mux.HandleFunc("GET /api/v1/face/models", s.listFaceModels)
+	mux.HandleFunc("POST /api/v1/face/models/download", s.downloadFaceModel)
+	mux.HandleFunc("POST /api/v1/face/models/switch", s.switchFaceModels)
 	mux.HandleFunc("DELETE /api/v1/students/{nim}", s.deleteStudent)
 	mux.HandleFunc("GET /api/v1/staff", s.listStaff)
 	mux.HandleFunc("POST /api/v1/staff", s.createLecturer)
@@ -1283,18 +1286,22 @@ func (s *Server) faceHealth(ctx context.Context) map[string]any {
 		return offline
 	}
 	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, 64<<10+1))
+	if err != nil || len(raw) > 64<<10 {
+		return offline
+	}
 	var data struct {
 		Status      string `json:"status"`
 		ModelLoaded bool   `json:"model_loaded"`
 		DetModel    string `json:"det_model"`
 		RecModel    string `json:"rec_model"`
 	}
-	if response.StatusCode != http.StatusOK || json.NewDecoder(response.Body).Decode(&data) != nil {
+	if response.StatusCode != http.StatusOK || json.Unmarshal(raw, &data) != nil {
 		return offline
 	}
 	result := map[string]any{
-		"online":   data.ModelLoaded,
-		"provider": "Python YOLO-FaceV2 + ArcFace",
+		"online":   data.Status == "ok" && data.ModelLoaded,
+		"provider": "Python face service",
 	}
 	if data.DetModel != "" {
 		result["detectionModel"] = data.DetModel

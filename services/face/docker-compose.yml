@@ -8,7 +8,7 @@ services:
       - "8000:8000"
     environment:
       # Model paths (relative to /app inside container)
-      - DET_MODEL_PATH=models/face_detection/yolo-facev2s.onnx
+      - DET_MODEL_PATH=models/face_detection/scrfd_10g.onnx
       - REC_MODEL_PATH=models/face_recognition/arcface_r50_fp16.onnx
       # Thresholds
       - CONF_THRESHOLD=0.35

@@ -102,8 +102,8 @@ Semua error dari `/api/v1/*` berbentuk:
   "status": "ok",
   "faceVerification": {
     "online": true,
-    "provider": "Python YOLO-FaceV2 + ArcFace",
-    "detectionModel": "face_detection/yolo-facev2s.onnx",
+    "provider": "Python face service",
+    "detectionModel": "face_detection/scrfd_10g.onnx",
     "recognitionModel": "face_recognition/arcface_r50_fp16.onnx"
   },
   "imageStorage": { "enabled": true, "online": true }
@@ -118,6 +118,22 @@ dalam 3 detik.
 `{"online": false, "provider": "Python face service"}`. Opsional `?device_id=<id>` memperbarui `devices.last_seen`
 (upsert, **tanpa token** — lihat catatan keamanan di `docs/devices.md` §7).
 
+### Manajemen model wajah — administrator + CSRF
+
+Go meneruskan API manajemen model Python tanpa mengekspos face service ke
+jaringan publik:
+
+| Go | Face service | Penggunaan |
+| --- | --- | --- |
+| `GET /api/v1/face/models?refresh_remote=true` | `GET /models` | katalog Hugging Face dan status model lokal |
+| `POST /api/v1/face/models/download` | `POST /models/download` | JSON `{"model_id":"face_detection/scrfd_10g.onnx","force":false}` |
+| `POST /api/v1/face/models/switch` | `POST /models/switch` | JSON berisi satu atau beberapa `det_model`, `rec_model`, `conf_threshold`, `iou_threshold` |
+
+Respons JSON dan status layanan Python diteruskan apa adanya. Request harus
+berupa JSON valid; timeout operasi model di Go adalah 10 menit. Mengganti
+model pengenalan membuat embedding lama tidak sebanding; lakukan enrollment
+ulang untuk mahasiswa sebelum scan memakai model baru.
+
 ### `GET /api/v1/dashboard` — staf
 
 Administrator menerima semua kelas; dosen hanya `users.class_ids`. Data
@@ -131,7 +147,7 @@ Administrator menerima semua kelas; dosen hanya `users.class_ids`. Data
   ],
   "integrations": {
     "esp32": { "online": true, "lastSeen": "08:11" },
-    "faceVerification": { "online": true, "provider": "Python YOLO-FaceV2 + ArcFace", "detectionModel": "…", "recognitionModel": "…" }
+    "faceVerification": { "online": true, "provider": "Python face service", "detectionModel": "…", "recognitionModel": "…" }
   },
   "attendance": [
     {

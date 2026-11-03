@@ -32,7 +32,7 @@ static/css|js               aset; htmx + Lucide di-vendor lokal
 devices/esp32_scanner/      firmware ESP32 utama (sensor, layar, buzzer, scan, heartbeat)
 devices/esp32cam_uart/      firmware ESP32-CAM (foto lewat UART)
 devices/esp32cam_wifi/      firmware ESP32-CAM (mode uji Wi-Fi, pengganti UART)
-services/face/              face service Python (YOLO-FaceV2 + ArcFace, FastAPI)
+services/face/              face service Python (SCRFD + ArcFace, FastAPI)
 internal/api/face.go        klien face service + pencocokan cosine di Go
 internal/api/images.go      foto wajah: unggah, otorisasi & stream, retensi
 internal/storage/s3.go      klien S3 (Garage) dengan pustaka standar

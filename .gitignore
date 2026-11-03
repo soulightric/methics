@@ -7,4 +7,3 @@ __pycache__/
 # Kredensial firmware perangkat (salin dari secrets.example.h)
 secrets.h
 .vscode/
-atlas-credentials.env

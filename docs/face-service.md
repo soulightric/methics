@@ -1,7 +1,7 @@
 # Face Service (Python) dan Integrasinya dengan Go
 
 > Status: **[TERSEDIA]**. Layanan ada di `services/face/` (FastAPI + ONNX
-> Runtime: YOLO-FaceV2 untuk deteksi, ArcFace R50 untuk embedding 512-d,
+> Runtime: SCRFD untuk deteksi, ArcFace R50 untuk embedding 512-d,
 > model diunduh dari Hugging Face `AkihikoSaburo/methics`). Cara menjalankan
 > layanannya sendiri ada di `services/face/README.md`.
 
@@ -40,13 +40,17 @@ enrollment, pencocokan), dipanggil dari `EnrollFace` dan `receiveScan` di
 | `GET /health` | status di dashboard & `/api/v1/health` | — | `model_loaded`, `det_model`, `rec_model` |
 | `POST /embed` | scan perangkat | multipart, 1 file `image` | `embedding` (512-d), `confidence`, `processing_time_ms` |
 | `POST /register?student_id=<id>` | enrollment | multipart, 1–6 file `images` bernama `foto-1.jpg` … `foto-6.jpg` | `num_templates`, `templates[].embedding`, `templates[].confidence`, `processing_time_ms` |
+| `GET /models` | katalog model (via Go) | query opsional `refresh_remote` | `repo_id`, `defaults`, status online, katalog per kategori |
+| `POST /models/download` | mengunduh model (via Go) | JSON `model_id`, opsional `force` | status, `model_id`, path, pesan |
+| `POST /models/switch` | mengganti model aktif (via Go) | JSON opsional `det_model`, `rec_model`, `conf_threshold`, `iou_threshold` | status dan model aktif |
 
 Keduanya memilih **wajah dengan confidence deteksi tertinggi** pada tiap
 foto; foto berisi beberapa orang tidak ditolak oleh Python, jadi pastikan
 foto enrollment hanya berisi mahasiswa yang bersangkutan. `return_aligned`
-tidak dipakai (crop wajah tidak dikirim balik). Endpoint `/models*` tidak
-dipakai Go dan tetap bisa dipakai tim lewat Swagger
-(`http://127.0.0.1:8000/docs`).
+tidak dipakai (crop wajah tidak dikirim balik). Endpoint manajemen model
+dapat diakses melalui Go pada `/api/v1/face/models`,
+`/api/v1/face/models/download`, dan `/api/v1/face/models/switch`; ketiganya
+khusus administrator dan meneruskan format JSON layanan Python.
 
 Status HTTP dari Python:
 
@@ -182,8 +186,8 @@ Cek integrasi:
 
 ```bash
 curl http://localhost:8080/api/v1/health
-# {"faceVerification":{"online":true,"provider":"Python YOLO-FaceV2 + ArcFace",
-#   "detectionModel":"face_detection/yolo-facev2s.onnx",
+# {"faceVerification":{"online":true,"provider":"Python face service",
+#   "detectionModel":"face_detection/scrfd_10g.onnx",
 #   "recognitionModel":"face_recognition/arcface_r50_fp16.onnx"},"status":"ok"}
 ```
 

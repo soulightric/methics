@@ -385,7 +385,7 @@ lama** tetap sama meski internalnya bertipe.
 
 ### `services/face/` (Python)
 
-FastAPI stateless milik tim ML (YOLO-FaceV2 + ArcFace). Go hanya memakai
+FastAPI stateless milik tim ML (SCRFD + ArcFace). Go hanya memakai
 `GET /health`, `POST /embed`, dan `POST /register` (tanpa `return_aligned`).
 `main.py` adalah peluncur uvicorn (`--host`, `--port`, `--reload`,
 `--workers`, `--list-models`, `--download-model`).

@@ -41,8 +41,8 @@ func sequenceFace(t *testing.T, responses [][]float64, status int) (*httptest.Se
 }
 
 var scanTemplates = []faceTemplate{
-	{StudentID: "student-241011001", Encodings: [][]float64{unit(1, 0, 0), unit(1, 0.3, 0)}},
-	{StudentID: "student-241011002", Encodings: [][]float64{unit(0, 1, 0)}},
+	{StudentID: "student-241011001", Encodings: [][]float64{faceEmbedding(1, 0, 0), faceEmbedding(1, 0.3, 0)}},
+	{StudentID: "student-241011002", Encodings: [][]float64{faceEmbedding(0, 1, 0)}},
 }
 
 func frames(n int) [][]byte {
@@ -54,7 +54,7 @@ func frames(n int) [][]byte {
 }
 
 func TestMatchFramesStopsAfterEnoughMatches(t *testing.T) {
-	service, calls := sequenceFace(t, [][]float64{nil, unit(1, 0.05, 0), unit(1, 0.1, 0), unit(1, 0, 0)}, 0)
+	service, calls := sequenceFace(t, [][]float64{nil, faceEmbedding(1, 0.05, 0), faceEmbedding(1, 0.1, 0), faceEmbedding(1, 0, 0)}, 0)
 	s := New(nil, Config{FaceServiceURL: service.URL})
 	results, err := s.matchFrames(context.Background(), frames(4), scanTemplates, 2)
 	if err != nil {
@@ -74,7 +74,7 @@ func TestMatchFramesStopsAfterEnoughMatches(t *testing.T) {
 }
 
 func TestMatchFramesUnknownFace(t *testing.T) {
-	stranger := unit(0, 0, 1)
+	stranger := faceEmbedding(0, 0, 1)
 	service, calls := sequenceFace(t, [][]float64{stranger, stranger, stranger, stranger}, 0)
 	s := New(nil, Config{FaceServiceURL: service.URL})
 	results, err := s.matchFrames(context.Background(), frames(4), scanTemplates, 2)

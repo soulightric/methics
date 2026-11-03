@@ -22,7 +22,7 @@ import (
 
 // Integrasi dengan face service Python (services/face/api.py).
 //
-// Face service bersifat stateless: ia mendeteksi wajah (YOLO-FaceV2), memilih
+// Face service bersifat stateless: ia mendeteksi wajah (SCRFD), memilih
 // wajah dengan confidence tertinggi, lalu mengekstrak embedding ArcFace 512-d
 // yang sudah dinormalisasi L2. Go memakai dua endpoint:
 //
@@ -35,6 +35,8 @@ import (
 
 // MaxEnrollPhotos adalah batas foto per enrollment (batas /register di Python).
 const MaxEnrollPhotos = 6
+const faceEmbeddingDimension = 512
+const maxFaceServiceResponseBytes = 2 << 20
 
 var (
 	ErrNoFace              = errors.New("no face detected")
@@ -156,11 +158,20 @@ func (s *Server) postImages(ctx context.Context, path string, query url.Values, 
 		return err
 	}
 	defer response.Body.Close()
+	raw, err := io.ReadAll(io.LimitReader(response.Body, maxFaceServiceResponseBytes+1))
+	if err != nil {
+		return fmt.Errorf("read face service response: %w", err)
+	}
+	if len(raw) > maxFaceServiceResponseBytes {
+		return fmt.Errorf("face service response exceeds %d bytes", maxFaceServiceResponseBytes)
+	}
 	if response.StatusCode < 200 || response.StatusCode >= 300 {
-		raw, _ := io.ReadAll(io.LimitReader(response.Body, 2048))
 		return &faceServiceError{Status: response.StatusCode, Detail: errorDetail(raw)}
 	}
-	if err := json.NewDecoder(response.Body).Decode(out); err != nil {
+	if len(raw) == 0 {
+		return errors.New("face service returned an empty response")
+	}
+	if err := json.Unmarshal(raw, out); err != nil {
 		return fmt.Errorf("decode face service response: %w", err)
 	}
 	return nil
@@ -216,7 +227,17 @@ func (s *Server) embedFace(ctx context.Context, image []byte, filename string) (
 	}
 	var result embedResponse
 	err := s.postImages(ctx, "/embed", nil, "image", []EnrollImage{{Data: image, Filename: filename}}, &result)
-	return result, err
+	if err != nil {
+		return embedResponse{}, err
+	}
+	if err := validateFaceEmbedding(result.Embedding); err != nil {
+		return embedResponse{}, fmt.Errorf("%w: invalid /embed response: %v", ErrFaceService, err)
+	}
+	if !validConfidence(result.Confidence) || math.IsNaN(result.ProcessingTimeMS) ||
+		math.IsInf(result.ProcessingTimeMS, 0) || result.ProcessingTimeMS < 0 {
+		return embedResponse{}, fmt.Errorf("%w: invalid /embed response metadata", ErrFaceService)
+	}
+	return result, nil
 }
 
 // registerFaces memanggil POST /register?student_id=... (field "images",
@@ -230,7 +251,45 @@ func (s *Server) registerFaces(ctx context.Context, studentID string, images []E
 	}
 	var result registerResponse
 	err := s.postImages(ctx, "/register", url.Values{"student_id": {studentID}}, "images", files, &result)
-	return result, err
+	if err != nil {
+		return registerResponse{}, err
+	}
+	if result.StudentID != studentID || result.NumTemplates != len(images) || len(result.Templates) != len(images) {
+		return registerResponse{}, fmt.Errorf("%w: invalid /register response counts or student_id", ErrFaceService)
+	}
+	if math.IsNaN(result.ProcessingTimeMS) || math.IsInf(result.ProcessingTimeMS, 0) || result.ProcessingTimeMS < 0 {
+		return registerResponse{}, fmt.Errorf("%w: invalid /register processing time", ErrFaceService)
+	}
+	for i, template := range result.Templates {
+		if err := validateFaceEmbedding(template.Embedding); err != nil {
+			return registerResponse{}, fmt.Errorf("%w: invalid /register template %d: %v", ErrFaceService, i+1, err)
+		}
+		if !validConfidence(template.Confidence) {
+			return registerResponse{}, fmt.Errorf("%w: invalid /register confidence for template %d", ErrFaceService, i+1)
+		}
+	}
+	return result, nil
+}
+
+func validateFaceEmbedding(embedding []float64) error {
+	if len(embedding) != faceEmbeddingDimension {
+		return fmt.Errorf("got %d dimensions, want %d", len(embedding), faceEmbeddingDimension)
+	}
+	var normSquared float64
+	for _, value := range embedding {
+		if math.IsNaN(value) || math.IsInf(value, 0) {
+			return errors.New("embedding contains a non-finite value")
+		}
+		normSquared += value * value
+	}
+	if normSquared == 0 || math.IsInf(normSquared, 0) {
+		return errors.New("embedding has an invalid norm")
+	}
+	return nil
+}
+
+func validConfidence(confidence float64) bool {
+	return !math.IsNaN(confidence) && !math.IsInf(confidence, 0) && confidence >= 0 && confidence <= 1
 }
 
 // cosineSimilarity menghitung kemiripan dua vektor. Embedding ArcFace sudah
@@ -347,15 +406,9 @@ func (s *Server) enrollEmbeddings(ctx context.Context, studentID string, images 
 	if err != nil {
 		return nil, classifyFaceError(err)
 	}
-	if len(registration.Templates) != len(images) {
-		return nil, fmt.Errorf("%w: face service mengembalikan %d template untuk %d foto", ErrFaceService, len(registration.Templates), len(images))
-	}
 	embeddings := make([][]float64, 0, len(images))
 	confidences := make([]float64, 0, len(images))
-	for i, template := range registration.Templates {
-		if len(template.Embedding) == 0 {
-			return nil, &PhotoError{Photo: i + 1, Err: ErrNoFace}
-		}
+	for _, template := range registration.Templates {
 		embeddings = append(embeddings, template.Embedding)
 		confidences = append(confidences, round4(template.Confidence))
 	}

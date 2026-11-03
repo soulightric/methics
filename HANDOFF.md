@@ -18,7 +18,7 @@ Pembaruan 26 Oktober 2026 (perangkat) — firmware perangkat absensi ESP32 + ESP
 
 Pembaruan 26 Oktober 2026 (sore) — penyimpanan foto wajah opsional di object storage S3 (**Garage**, `internal/storage/s3.go` + `internal/api/images.go`) dengan retensi otomatis dan tampilan foto di halaman Log; bug scoping filter kelas di `AllScanEvents` diperbaiki; code cleaning (fungsi mati dan pembungkus header keamanan ganda dihapus).
 
-Pembaruan 26 Oktober 2026 (pagi) — face service Python (`services/face/`, YOLO-FaceV2 + ArcFace) dihubungkan ke backend Go: Go memanggil `POST /detect` (sejak 28 Oktober diganti `/embed` + `/register`), menyimpan embedding di MongoDB, dan melakukan pencocokan cosine sendiri (`internal/api/face.go`), sehingga Go menjadi satu-satunya API untuk dashboard dan ESP32.
+Pembaruan 26 Oktober 2026 (pagi) — face service Python (`services/face/`, kini SCRFD + ArcFace) dihubungkan ke backend Go: Go memanggil `POST /detect` (sejak 28 Oktober diganti `/embed` + `/register`), menyimpan embedding di MongoDB, dan melakukan pencocokan cosine sendiri (`internal/api/face.go`), sehingga Go menjadi satu-satunya API untuk dashboard dan ESP32.
 
 Pembaruan 21 Oktober 2026 — dokumentasi diselaraskan dengan kode setelah migrasi **SQLite → MongoDB**, penambahan halaman **Log pemindaian** (`/logs`), endpoint **heartbeat perangkat** (`/api/v1/devices/ping`), dan firmware **ESP8266**. Dokumen baru: `docs/database.md`, `docs/devices.md`, `docs/face-service.md`, dan `.env.example`.
 
@@ -82,7 +82,7 @@ Go server-rendered memakai `html/template`:
 - **Koneksi MongoDB, index, seed:** `internal/store/database.go`
 - **Akun staf, bcrypt, bootstrap helpers:** `internal/store/users.go`
 - **Firmware perangkat:** `devices/esp32_scanner/` (ESP32 utama) dan `devices/esp32cam_uart/` (kamera); lihat `docs/devices.md` §2–3
-- **Face service Python:** `services/face/` (FastAPI stateless, YOLO-FaceV2 + ArcFace 512-d); klien & pencocokan di Go: `internal/api/face.go` (lihat `docs/face-service.md`)
+- **Face service Python:** `services/face/` (FastAPI stateless, SCRFD + ArcFace 512-d); klien & pencocokan di Go: `internal/api/face.go` (lihat `docs/face-service.md`)
 - **Test Go:** `internal/api/{face,images,admin}_test.go`, `internal/storage/s3_test.go`, `internal/controller/fragments_test.go` (tanpa MongoDB)
 
 Route halaman dan fragment:
