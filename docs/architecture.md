@@ -37,7 +37,7 @@ API.
 | Foto wajah | `internal/api/images.go`, `internal/storage/s3.go` | unggah/stream/retensi foto di Garage (S3 SigV4, pustaka standar) |
 | Tampilan | `views/` | `layouts/base.html`, `pages/*`, `fragments/*` |
 | Aset statis | `static/` | `css/`, `js/app.js`, `js/lib/ui.js`, vendor lokal |
-| Face service | `services/face/` | Python (stateless): `/health`, `/embed` (1 foto) dan `/register` (1–6 foto) → embedding ArcFace 512-d; dipanggil oleh `internal/api/face.go` |
+| Face service | `services/face/` | Python (stateless): `/health`, `/embed` (1 foto) dan `/register` (batch 1–6 foto); Go mengirim enrollment satu request per foto secara paralel, inferensi dibatasi dua bersamaan |
 | Firmware | `devices/` | `esp32_scanner` (perangkat absensi → `/api/v1/scans`, `/devices/ping`), `esp32cam_uart` (kamera via UART); firmware lain hanya untuk commissioning |
 
 Vendor frontend di-host lokal dan versi-terpin: htmx 2.0.11, Lucide 1.59.0,
@@ -138,9 +138,12 @@ HMAC ada di `API.md`.
 
 - **Keputusan**: model deteksi & embedding wajah tinggal di `services/face`
   (Python, ONNX). Go memvalidasi perangkat/role, memanggil `POST /embed`
-  (scan) dan `POST /register` (enrollment 1–6 pose), menyimpan embedding, dan
-  mencocokkannya. Revisi 28 Okt: `/detect` dihapus dari Python; satu
-  mahasiswa kini punya beberapa embedding pose dan skornya adalah pose terbaik.
+  (scan) dan `POST /register` (satu request per pose secara paralel saat
+  enrollment), menyimpan embedding, dan mencocokkannya. Revisi 28 Okt:
+  `/detect` dihapus dari Python; satu mahasiswa kini punya beberapa embedding
+  pose dan skornya adalah pose terbaik.
+  Enrollment Go mengirim satu request per foto secara paralel; layanan Python
+  menjalankan paling banyak dua inferensi pada worker thread sekaligus.
 - **Konsekuensi**: service Python tidak pernah diekspos ke jaringan publik;
   Go mengirim `FACE_SERVICE_TOKEN` sebagai Bearer (belum diperiksa oleh
   `api.py`).
@@ -251,9 +254,10 @@ Variabel lingkungan (dari `cmd/server/main.go`):
 | `BOOTSTRAP_ADMIN_*`, `BOOTSTRAP_LECTURER_*` | pembuatan akun awal |
 
 `FACE_SIM_THRESHOLD` (default `0.45`, ambang cosine similarity) dan
-`FACE_SERVICE_TIMEOUT_SECONDS` (default `15`) dibaca oleh Go;
-`FACE_SERVICE_URL` default `http://127.0.0.1:8000`. Templat lengkap: `.env.example`. Zona waktu server menentukan
-batas "hari ini" pada ringkasan dan laporan.
+`FACE_SERVICE_TIMEOUT_SECONDS` (default `15`) dibaca oleh Go; untuk enrollment nilainya dikali jumlah
+gelombang inferensi (dua request aktif bersamaan). `FACE_SERVICE_URL`
+default `http://127.0.0.1:8000`. Templat lengkap: `.env.example`. Zona waktu
+server menentukan batas "hari ini" pada ringkasan dan laporan.
 
 `.env` dimuat dengan `godotenv.Overload`, jadi nilainya menimpa environment
 proses (lihat `code-guide.md` §8). Bila `.env` tidak ada, konfigurasi wajib

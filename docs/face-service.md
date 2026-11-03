@@ -9,7 +9,7 @@
 
 ```text
 Browser / ESP32 ──► Go (satu-satunya API publik, :8080)
-                     │  POST /register?student_id=…  (1–6 file "images")   — enrollment
+                     │  POST /register?student_id=…  (satu file per request, paralel) — enrollment
                      │  POST /embed                   (1 file "image")     — scan
                      ├──────────────────────────────► Python face service (:8000, internal)
                      │◄──────────── embedding ArcFace 512-d (+ confidence) per foto
@@ -39,7 +39,7 @@ enrollment, pencocokan), dipanggil dari `EnrollFace` dan `receiveScan` di
 | --- | --- | --- | --- |
 | `GET /health` | status di dashboard & `/api/v1/health` | — | `model_loaded`, `det_model`, `rec_model` |
 | `POST /embed` | scan perangkat | multipart, 1 file `image` | `embedding` (512-d), `confidence`, `processing_time_ms` |
-| `POST /register?student_id=<id>` | enrollment | multipart, 1–6 file `images` bernama `foto-1.jpg` … `foto-6.jpg` | `num_templates`, `templates[].embedding`, `templates[].confidence`, `processing_time_ms` |
+| `POST /register?student_id=<id>` | enrollment | multipart; Go mengirim satu file `images` per request dan menjalankan request paralel (batas dua inferensi bersamaan di Python); API tetap menerima batch 1–6 file | `num_templates`, `templates[].embedding`, `templates[].confidence`, `processing_time_ms` |
 | `GET /models` | katalog model (via Go) | query opsional `refresh_remote` | `repo_id`, `defaults`, status online, katalog per kategori |
 | `POST /models/download` | mengunduh model (via Go) | JSON `model_id`, opsional `force` | status, `model_id`, path, pesan |
 | `POST /models/switch` | mengganti model aktif (via Go) | JSON opsional `det_model`, `rec_model`, `conf_threshold`, `iou_threshold` | status dan model aktif |
@@ -71,7 +71,11 @@ Status HTTP dari Python:
 `POST /api/v1/students/{nim}/face-template` (JSON, field `images`):
 
 1. Go membaca 1–6 foto (maks 8 MB per foto; field `images`, atau `image`
-   untuk klien lama) lalu mengirim semuanya ke `POST /register`.
+   untuk klien lama), lalu mengirim setiap foto ke `POST /register` sebagai
+   request terpisah secara paralel. Python menjalankan maksimal dua inferensi
+   sekaligus di worker thread agar event loop API tetap responsif; hasil
+   digabung Go menurut urutan foto awal. Timeout enrollment disesuaikan
+   dengan jumlah batch inferensi.
    Pose yang disarankan: depan, kiri (~30°), kanan (~30°), atas, bawah,
    senyum. Satu foto depan tetap boleh.
 2. Foto tanpa wajah → `422 no_face` dengan nomor fotonya.
@@ -153,13 +157,12 @@ Sisi Go (`.env`):
 | `FACE_SIM_THRESHOLD` | `0.45` | ambang cosine similarity untuk scan dan cek duplikat; samakan dengan `SIM_THRESHOLD` di Python |
 | `FACE_POSE_THRESHOLD` | `0.30` | ambang kemiripan antar-foto dalam satu enrollment (cek konsistensi pose) |
 | `SCAN_MIN_MATCH_FRAMES` | `2` | jumlah frame scan yang harus cocok dengan mahasiswa yang sama agar langsung **Hadir** tanpa liveness dari perangkat |
-| `FACE_SERVICE_TIMEOUT_SECONDS` | `15` | batas waktu satu panggilan `/embed`; `/register` mendapat nilai ini × jumlah foto (6 foto → 90 detik). Health memakai 3 detik |
+| `FACE_SERVICE_TIMEOUT_SECONDS` | `15` | batas waktu `/embed`; enrollment mendapat nilai ini dikali jumlah gelombang (dua inferensi Python bersamaan; 6 foto → 45 detik). Health memakai 3 detik |
 
 Request enrollment juga mendapat batas baca/tulis sendiri **3 menit**
 (`api.EnrollRequestTimeout`), menggantikan `ReadTimeout`/`WriteTimeout`
-server 15 detik, dan foto ke Garage diunggah paralel. Sebelumnya enrollment
-lebih dari ±2 foto HP bisa terputus di tengah jalan karena total waktunya
-melewati 15 detik.
+server 15 detik. Foto enrollment dikirim ke Python secara paralel dengan
+batas dua inferensi sekaligus; unggahan foto ke Garage juga paralel.
 
 Sisi Python: lihat `services/face/src/config.py` (`DET_MODEL_PATH`,
 `REC_MODEL_PATH`, `CONF_THRESHOLD`, `SIM_THRESHOLD`, `FACE_SERVICE_TOKEN`,

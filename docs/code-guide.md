@@ -316,11 +316,14 @@ lama** tetap sama meski internalnya bertipe.
   `ErrNoFace` (nomor foto dari `image #N` dibungkus `*PhotoError`), lainnya →
   `ErrFaceService`.
 - `embedFace` → `POST /embed` (field `image`); `registerFaces` →
-  `POST /register?student_id=` (field `images`, file dinamai `foto-N.<ext>`).
+  `POST /register?student_id=` satu request per foto (field `images`, file
+  dinamai `foto-N.<ext>`) secara paralel.
 - `enrollEmbeddings` (dipanggil `EnrollFace`): 1–`MaxEnrollPhotos` (6) foto,
-  `checkEnrollEmbeddings` menolak foto yang bukan orang yang sama
-  (`poseConsistency` = maks kemiripan dengan foto pertama atau rata-rata foto
-  lain < `Config.PoseThreshold`, `ErrInconsistentFaces`) dan wajah yang mirip
+  masing-masing dikirim sebagai request `/register` paralel; respons digabung
+  kembali menurut urutan unggahan. `checkEnrollEmbeddings` menolak foto yang
+  bukan orang yang sama (`poseConsistency` = maks kemiripan dengan foto
+  pertama atau rata-rata foto lain < `Config.PoseThreshold`,
+  `ErrInconsistentFaces`) dan wajah yang mirip
   template mahasiswa lain
   (`ErrFaceAlreadyEnrolled`), lalu upsert `encodings` ke `face_templates`
   (dan `$unset` field lama `encoding`).
@@ -329,8 +332,8 @@ lama** tetap sama meski internalnya bertipe.
 - Vektor dengan dimensi berbeda diabaikan. Ambang: `Config.SimThreshold`
   (`FACE_SIM_THRESHOLD`) untuk scan dan cek duplikat; `Config.PoseThreshold`
   (`FACE_POSE_THRESHOLD`, 0.30) untuk konsistensi pose.
-- Batas waktu: `postImages` memberi `FaceServiceTimeout × jumlah foto`
-  lewat context (`http.Client` tanpa timeout global). `ReadEnrollImages`
+- Batas waktu: panggilan `/register` mendapat `FaceServiceTimeout` dikali
+  jumlah gelombang inferensi (maksimal dua foto bersamaan). `ReadEnrollImages`
   memperpanjang deadline baca/tulis request menjadi `EnrollRequestTimeout`
   (3 menit) lewat `http.ResponseController`, karena server memakai
   `ReadTimeout`/`WriteTimeout` 15 detik. `storeEnrollmentImages` mengunggah

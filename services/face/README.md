@@ -52,5 +52,9 @@ Operator administrator mengelola model lewat endpoint Go
 perangkat. Perubahan recognition model membuat embedding lama tidak
 sebanding, sehingga semua mahasiswa harus di-enroll ulang sebelum scan.
 
+Backend Go mengirim enrollment satu gambar per request secara paralel. Python
+menjalankan maksimal dua inferensi sekaligus pada worker thread agar enam
+request tidak memblokir event loop atau membuat beban inferensi tanpa batas.
+
 Lihat [../../docs/face-service.md](../../docs/face-service.md) untuk kontrak
 integrasi, konfigurasi, dan batasan sistem.

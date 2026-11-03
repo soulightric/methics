@@ -254,10 +254,11 @@ setelah restart.
 
 `multipart/form-data` dengan **1–6** file pada field `images` (field `image`
 tetap diterima; ≤ 8 MiB per foto). Pose yang disarankan: depan, kiri,
-kanan, atas, bawah, senyum. Go mengirim semua foto ke face service
-`POST /register`, memastikan tiap foto berisi wajah, semua foto adalah orang
-yang sama, dan wajahnya belum terdaftar atas NIM lain, lalu menyimpan semua
-embedding 512-d ke satu dokumen `face_templates` (enrollment ulang
+kanan, atas, bawah, senyum. Go mengirim satu request `POST /register` per
+foto secara paralel (face service membatasi dua inferensi bersamaan), lalu
+memastikan tiap foto berisi wajah, semua foto adalah orang yang sama, dan
+wajahnya belum terdaftar atas NIM lain. Go menyimpan semua embedding 512-d ke
+satu dokumen `face_templates` sesuai urutan unggahan (enrollment ulang
 mengganti semua pose lama).
 
 ```bash

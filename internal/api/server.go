@@ -41,8 +41,8 @@ type Config struct {
 	// yang sama agar scan langsung Hadir tanpa bukti liveness dari perangkat
 	// (SCAN_MIN_MATCH_FRAMES, default 2). Lihat scan.go.
 	ScanMinMatchFrames int
-	// FaceServiceTimeout membatasi lama satu panggilan /embed; /register
-	// mendapat FaceServiceTimeout × jumlah foto.
+	// FaceServiceTimeout membatasi panggilan /embed. Enrollment paralel
+	// memperpanjang batas berdasarkan jumlah batch inferensi.
 	FaceServiceTimeout time.Duration
 	// ImageStorage adalah koneksi S3 (Garage) untuk foto wajah; kosong =
 	// foto tidak disimpan.

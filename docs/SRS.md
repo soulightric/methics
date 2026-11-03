@@ -319,7 +319,7 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 
 | ID | Antarmuka | Detail | Status |
 | --- | --- | --- | --- |
-| IF-SW-01 | Backend ↔ Layanan wajah | HTTP internal bertoken; `GET /health`, `POST /embed` (scan), `POST /register` (enrollment 1–6 pose) → embedding 512-d; endpoint manajemen model hanya melalui backend Go | `[TERSEDIA]` |
+| IF-SW-01 | Backend ↔ Layanan wajah | HTTP internal bertoken; `GET /health`, `POST /embed` (scan), `POST /register` (satu request per pose secara paralel saat enrollment; dua inferensi bersamaan) → embedding 512-d; endpoint manajemen model hanya melalui backend Go | `[TERSEDIA]` |
 | IF-SW-02 | Backend ↔ Basis data | MongoDB (driver Go resmi v1.17) | `[TERSEDIA]` |
 | IF-SW-05 | Penyimpanan template wajah | Go menulis `face_templates`; layanan wajah stateless | `[TERSEDIA]` |
 | IF-SW-03 | Browser ↔ Backend | HTML/htmx + JSON `/api/v1` | `[TERSEDIA]` |
@@ -351,7 +351,7 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 | ID | Kebutuhan | Target | Status |
 | --- | --- | --- | --- |
 | NFR-PERF-01 | Batas ukuran gambar yang diterima | 8 MB | `[TERSEDIA]` |
-| NFR-PERF-02 | Timeout panggilan ke layanan wajah | 15 detik (`FACE_SERVICE_TIMEOUT_SECONDS`); unggah foto 3 detik | `[TERSEDIA]` |
+| NFR-PERF-02 | Timeout panggilan ke layanan wajah | `/embed` 15 detik; enrollment 15 detik per gelombang inferensi, maksimal 45 detik untuk 6 foto | `[TERSEDIA]` |
 | NFR-PERF-03 | Waktu muat halaman dashboard | `ISI:` (mis. < 2 s pada LAN) | TBD |
 | NFR-PERF-04 | Throughput scan bersamaan | `ISI:` (mis. N per menit) | TBD |
 | NFR-PERF-05 | Latensi checkout absensi | `ISI:` | TBD |

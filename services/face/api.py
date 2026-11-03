@@ -15,6 +15,7 @@ Endpoints:
 """
 
 
+import asyncio
 import time
 import base64
 import hmac
@@ -34,6 +35,7 @@ logger = logging.getLogger(__name__)
 
 pipeline: Optional[FacePipeline] = None
 start_time: float = 0.0
+inference_slots = asyncio.Semaphore(2)
 
 
 def require_face_service_token(authorization: Optional[str] = Header(default=None)) -> None:
@@ -263,7 +265,12 @@ async def extract_embedding(
     img_bgr = _decode_image(file_bytes)
 
     t0 = time.time()
-    faces = pipe.process_image(img_bgr, conf_threshold=conf_threshold)
+    async with inference_slots:
+        faces = await asyncio.to_thread(
+            pipe.process_image,
+            img_bgr,
+            conf_threshold=conf_threshold,
+        )
     elapsed_ms = (time.time() - t0) * 1000
 
     if not faces:
@@ -371,7 +378,12 @@ async def register_student(
         img_bytes = await img_file.read()
         img_bgr = _decode_image(img_bytes)
 
-        faces = pipe.process_image(img_bgr, conf_threshold=conf_threshold)
+        async with inference_slots:
+            faces = await asyncio.to_thread(
+                pipe.process_image,
+                img_bgr,
+                conf_threshold=conf_threshold,
+            )
         if not faces:
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,

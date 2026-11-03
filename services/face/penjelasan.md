@@ -85,6 +85,12 @@ terhadap mahasiswa lain, dan menyimpan seluruh pose dalam satu dokumen
 `face_templates`. Jika konfigurasi S3 aktif, Go juga dapat menyimpan foto asli
 ke Garage. Enrollment ulang mengganti template pose sebelumnya.
 
+Untuk mempercepat enrollment multi-foto, Go mengirim satu request per foto
+secara paralel. Python memindahkan inferensi ONNX ke worker thread dan
+membatasi inferensi bersamaan menjadi dua; unggahan lebih dari dua foto
+diproses dalam beberapa gelombang. Endpoint `/register` tetap mendukung batch
+1–6 foto untuk klien lain.
+
 ## 6. Verifikasi Scan
 
 ```mermaid

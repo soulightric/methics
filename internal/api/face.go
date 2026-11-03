@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"go.mongodb.org/mongo-driver/bson"
@@ -122,10 +123,9 @@ func (t faceTemplate) vectors() [][]float64 {
 }
 
 // postImages mengirim satu atau beberapa file sebagai multipart ke face
-// service lalu men-decode respons JSON ke out. Batas waktunya
-// FaceServiceTimeout per foto, jadi /register 6 foto mendapat 6× waktu /embed.
-func (s *Server) postImages(ctx context.Context, path string, query url.Values, field string, images []EnrollImage, out any) error {
-	ctx, cancel := context.WithTimeout(ctx, s.config.FaceServiceTimeout*time.Duration(max(len(images), 1)))
+// service lalu men-decode respons JSON ke out.
+func (s *Server) postImages(ctx context.Context, path string, query url.Values, field string, images []EnrollImage, timeout time.Duration, out any) error {
+	ctx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 	var body bytes.Buffer
 	writer := multipart.NewWriter(&body)
@@ -226,7 +226,7 @@ func (s *Server) embedFace(ctx context.Context, image []byte, filename string) (
 		filename = "capture.jpg"
 	}
 	var result embedResponse
-	err := s.postImages(ctx, "/embed", nil, "image", []EnrollImage{{Data: image, Filename: filename}}, &result)
+	err := s.postImages(ctx, "/embed", nil, "image", []EnrollImage{{Data: image, Filename: filename}}, s.config.FaceServiceTimeout, &result)
 	if err != nil {
 		return embedResponse{}, err
 	}
@@ -240,35 +240,84 @@ func (s *Server) embedFace(ctx context.Context, image []byte, filename string) (
 	return result, nil
 }
 
-// registerFaces memanggil POST /register?student_id=... (field "images",
-// 1–6 file). Nama file diseragamkan menjadi foto-N.<ext> agar nomor foto pada
-// pesan error sesuai urutan unggahan.
+// registerFaces memanggil POST /register?student_id=... satu kali per foto,
+// secara paralel. Nama file dan hasil tetap mengikuti urutan unggahan.
 func (s *Server) registerFaces(ctx context.Context, studentID string, images []EnrollImage) (registerResponse, error) {
 	files := make([]EnrollImage, len(images))
 	for i, image := range images {
 		ext, _ := imageExtension(image.Data)
 		files[i] = EnrollImage{Data: image.Data, Filename: fmt.Sprintf("foto-%d.%s", i+1, ext)}
 	}
-	var result registerResponse
-	err := s.postImages(ctx, "/register", url.Values{"student_id": {studentID}}, "images", files, &result)
-	if err != nil {
-		return registerResponse{}, err
+	if len(files) == 0 {
+		return registerResponse{}, ErrInvalidImage
 	}
-	if result.StudentID != studentID || result.NumTemplates != len(images) || len(result.Templates) != len(images) {
-		return registerResponse{}, fmt.Errorf("%w: invalid /register response counts or student_id", ErrFaceService)
+	if len(files) > MaxEnrollPhotos {
+		return registerResponse{}, ErrTooManyPhotos
 	}
-	if math.IsNaN(result.ProcessingTimeMS) || math.IsInf(result.ProcessingTimeMS, 0) || result.ProcessingTimeMS < 0 {
-		return registerResponse{}, fmt.Errorf("%w: invalid /register processing time", ErrFaceService)
+
+	results := make([]registerResponse, len(files))
+	errs := make([]error, len(files))
+	started := time.Now()
+	timeout := s.config.FaceServiceTimeout * time.Duration(max((len(files)+1)/2, 1))
+	var group sync.WaitGroup
+	for i := range files {
+		group.Add(1)
+		go func(index int) {
+			defer group.Done()
+
+			var result registerResponse
+			err := s.postImages(
+				ctx,
+				"/register",
+				url.Values{"student_id": {studentID}},
+				"images",
+				[]EnrollImage{files[index]},
+				timeout,
+				&result,
+			)
+			if err != nil {
+				errs[index] = indexPhotoError(classifyFaceError(err), index+1)
+				return
+			}
+			if result.StudentID != studentID || result.NumTemplates != 1 || len(result.Templates) != 1 {
+				errs[index] = indexPhotoError(fmt.Errorf("%w: invalid /register response counts or student_id", ErrFaceService), index+1)
+				return
+			}
+			template := result.Templates[0]
+			if err := validateFaceEmbedding(template.Embedding); err != nil {
+				errs[index] = indexPhotoError(fmt.Errorf("%w: invalid /register response: %v", ErrFaceService, err), index+1)
+				return
+			}
+			if !validConfidence(template.Confidence) || math.IsNaN(result.ProcessingTimeMS) ||
+				math.IsInf(result.ProcessingTimeMS, 0) || result.ProcessingTimeMS < 0 {
+				errs[index] = indexPhotoError(fmt.Errorf("%w: invalid /register response metadata", ErrFaceService), index+1)
+				return
+			}
+			results[index] = result
+		}(i)
 	}
-	for i, template := range result.Templates {
-		if err := validateFaceEmbedding(template.Embedding); err != nil {
-			return registerResponse{}, fmt.Errorf("%w: invalid /register template %d: %v", ErrFaceService, i+1, err)
+	group.Wait()
+
+	combined := registerResponse{
+		StudentID:        studentID,
+		NumTemplates:     len(files),
+		ProcessingTimeMS: float64(time.Since(started).Microseconds()) / 1000,
+	}
+	for i, result := range results {
+		if errs[i] != nil {
+			return registerResponse{}, errs[i]
 		}
-		if !validConfidence(template.Confidence) {
-			return registerResponse{}, fmt.Errorf("%w: invalid /register confidence for template %d", ErrFaceService, i+1)
-		}
+		combined.Templates = append(combined.Templates, result.Templates[0])
 	}
-	return result, nil
+	return combined, nil
+}
+
+func indexPhotoError(err error, photo int) error {
+	var photoErr *PhotoError
+	if errors.As(err, &photoErr) {
+		err = photoErr.Err
+	}
+	return &PhotoError{Photo: photo, Err: err}
 }
 
 func validateFaceEmbedding(embedding []float64) error {

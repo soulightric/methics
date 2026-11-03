@@ -134,7 +134,7 @@ dirender Go dengan `html/template`; data dimuat dan disegarkan oleh htmx dari
 | `FACE_SIM_THRESHOLD` | `0.45` | ambang cosine similarity untuk menyatakan wajah cocok |
 | `FACE_POSE_THRESHOLD` | `0.30` | ambang kemiripan antar-foto dalam satu enrollment (1–6 pose) |
 | `SCAN_MIN_MATCH_FRAMES` | `2` | frame scan yang harus cocok dengan mahasiswa yang sama agar langsung Hadir |
-| `FACE_SERVICE_TIMEOUT_SECONDS` | `15` | batas waktu satu panggilan `/embed` atau `/register` |
+| `FACE_SERVICE_TIMEOUT_SECONDS` | `15` | batas waktu `/embed`; enrollment dihitung per gelombang inferensi (maks. 2 foto paralel; 6 foto = hingga 45 detik) |
 | `FACE_SERVICE_TOKEN` | — | **wajib**, ≥ 32 karakter, sama di Go dan Python; Python menolak request tanpa bearer valid |
 | `FACE_SERVICE_BIND_ADDRESS` | `127.0.0.1` | alamat host untuk port face service di Docker Compose; gunakan jaringan privat bila Go berada di host lain |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | kosong, `garage`, kosong | object storage S3 (Garage) untuk foto wajah; kosong = foto tidak disimpan |
@@ -201,8 +201,8 @@ Wi-Fi dan `DEVICE_TOKEN` untuk ESP32 disimpan di
 
 Face service ada di `services/face/` (FastAPI + ONNX Runtime: SCRFD untuk
 deteksi, ArcFace untuk embedding 512 dimensi). Layanan ini **stateless**: Go
-memanggil `POST /register` saat enrollment (1–6 foto pose berbeda → satu
-embedding per foto) dan `POST /embed` saat scan, lalu Go sendiri yang
+memanggil `POST /register` satu request per foto secara paralel saat enrollment
+(maksimal dua inferensi Python sekaligus) dan `POST /embed` saat scan, lalu Go sendiri yang
 menyimpan embedding ke MongoDB dan mencocokkannya dengan cosine similarity
 terhadap semua pose. Jadi dashboard dan perangkat ESP32 cukup memakai satu
 API, yaitu Go.
