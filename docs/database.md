@@ -20,8 +20,9 @@
    berhenti dengan pesan galat yang tidak mencetak URI koneksi.
 2. `migrate` — membuat index (idempoten; aman dijalankan setiap startup).
 3. `seed` — upsert kelas dan perangkat memakai `$setOnInsert`, sehingga
-   **tidak menimpa** data yang sudah diubah (lihat §5). Mahasiswa tidak
-   di-seed.
+   **tidak menimpa** data yang sudah diubah (lihat §5). Kelas yang dihapus
+   dicatat di `deleted_classes` agar tidak muncul kembali saat restart.
+   Mahasiswa tidak di-seed.
 
 Nilai `MONGODB_*` dibaca dari `.env` dengan `godotenv.Overload` (menimpa
 environment). Baris log `connected to MongoDB (database: …)` menunjukkan nama
@@ -41,6 +42,14 @@ otomatis.
 | --- | --- | --- |
 | `_id` | string | kode kelas, mis. `IK24-A` (huruf besar) |
 | `name` | string | nama tampilan, mis. `Ilmu Komputer A` |
+| `created_at` | date | waktu kelas dibuat melalui UI (opsional untuk data seed) |
+| `created_by` | string | ID akun staf pembuat kelas (opsional untuk data seed) |
+
+### `deleted_classes`
+
+Tombstone untuk kelas seed yang dihapus melalui UI. `_id` adalah kode kelas;
+`deleted_at` dan `deleted_by` mencatat waktu dan akun penghapus. Koleksi ini
+mencegah seed menghidupkan kembali kelas awal pada startup berikutnya.
 
 ### `students`
 
@@ -194,7 +203,9 @@ data itu akan salah masuk/keluar dari rentang "hari ini".
 | Template wajah / scan | **tidak ada** |
 
 Seed berjalan di setiap startup tetapi hanya menyisipkan kelas dan perangkat
-yang belum ada. Versi lama juga men-seed mahasiswa `IK24001`–`IK24005`; bila
+yang belum ada. Tiga kelas awal yang sengaja dihapus melalui UI diberi
+tombstone di `deleted_classes`, jadi seed tidak memulihkannya. Versi lama juga
+men-seed mahasiswa `IK24001`–`IK24005`; bila
 masih ada di database, hapus sekali lewat halaman Mahasiswa (tidak akan
 dibuat lagi), atau lewat `mongosh`:
 
@@ -231,7 +242,7 @@ db.users.updateOne({ username: "rina" }, { $set: { class_ids: ["IK24-A", "IK24-C
 // Menonaktifkan akun staf (sesi aktifnya ikut ditolak pada request berikutnya)
 db.users.updateOne({ username: "rina" }, { $set: { active: false } })
 
-// Menambah kelas baru (ingat: opsi filter kelas di view masih hardcoded)
+// Menambah kelas baru (pilihan kelas di UI diambil dari database)
 db.classes.insertOne({ _id: "IK24-D", name: "Ilmu Komputer D" })
 
 // Mendaftarkan perangkat baru secara eksplisit
@@ -247,11 +258,13 @@ db.face_templates.find({ encoding: { $exists: true } }, { student_id: 1 })
 db.scan_events.find({ status: "Perlu ditinjau" }).sort({ scanned_at: -1 }).limit(20)
 ```
 
-Membuat/menghapus akun dosen dan menghapus mahasiswa (beserta data
-biometrik) sudah tersedia di UI. Mengubah kelas dosen, menonaktifkan akun,
-menambah kelas, dan mendaftarkan perangkat belum ada di UI (lihat `HANDOFF.md`
-§Langkah Lanjutan). Jangan menghapus `face_templates` langsung bila fotonya
-ada di Garage; gunakan hapus mahasiswa agar foto ikut terhapus.
+Membuat/menghapus akun dosen, menghapus mahasiswa (beserta data biometrik),
+serta menambah/menghapus kelas sudah tersedia di UI. Dosen yang membuat kelas
+otomatis mendapat penugasan ke kelas tersebut. Hapus kelas ditolak jika masih
+dipakai mahasiswa, perangkat, riwayat scan, atau akun staf lain. Mengubah
+penugasan dosen dan mendaftarkan perangkat belum ada di UI. Jangan menghapus
+`face_templates` langsung bila fotonya ada di Garage; gunakan hapus mahasiswa
+agar foto ikut terhapus.
 
 ## 7. Backup & pemulihan
 

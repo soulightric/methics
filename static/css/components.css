@@ -157,4 +157,7 @@ tbody tr:hover { background: #fbfcfb; }
 .check { display: flex; align-items: center; gap: 7px; font-weight: 500; }
 .class-picks .check input { width: 15px; height: 15px; margin: 0; flex: none; accent-color: var(--green); }
 .button.danger svg, .staff-form-title svg { width: 15px; height: 15px; flex: none; }
+.class-create-form { display: flex; align-items: flex-end; gap: 8px; }
+.class-create-form .field { gap: 4px; }
+.class-create-form input { width: 150px; height: 34px; border: 1px solid var(--line); border-radius: 6px; padding: 0 9px; font-size: 11px; }
 @media (max-width: 860px) { .staff-layout { grid-template-columns: 1fr; } }

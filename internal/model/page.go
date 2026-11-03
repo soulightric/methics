@@ -13,9 +13,15 @@ type Page struct {
 	TeacherName string
 	RoleClasses string
 	CSRFToken   string
+	Classes     []ClassOption
 	LoginError  string
 	NextURL     string
 	Today       string
+}
+
+type ClassOption struct {
+	ID   string
+	Name string
 }
 
 // NewPage menyiapkan data tampilan halaman. Role tak dikenal ditampilkan

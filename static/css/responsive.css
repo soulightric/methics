@@ -31,6 +31,9 @@
   .view-tools .search { flex: 1 1 180px; }
   .student-summary { grid-template-columns: 1fr; gap: 8px; }
   .student-summary.wide { grid-template-columns: 1fr; }
+  .class-create-form { width: 100%; flex-wrap: wrap; }
+  .class-create-form .field { flex: 1 1 130px; }
+  .class-create-form input { width: 100%; }
   .access-cards { grid-template-columns: 1fr; }
   .page-view .panel-header { align-items: flex-start !important; flex-direction: column; }
   th, td { padding-right: 13px; padding-left: 13px; }

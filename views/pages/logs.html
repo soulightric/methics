@@ -24,9 +24,7 @@
       </select><i data-lucide="chevron-down"></i></label>
       <label class="select-wrap"><select id="logClass" name="class" aria-label="Filter kelas">
         <option value="all">Semua kelas</option>
-        <option value="IK24-A">IK24-A</option>
-        <option value="IK24-B">IK24-B</option>
-        <option value="IK24-C">IK24-C</option>
+        {{range .Classes}}<option value="{{.ID}}">{{.Name}} ({{.ID}})</option>{{end}}
       </select><i data-lucide="chevron-down"></i></label>
     </form>
   </div>

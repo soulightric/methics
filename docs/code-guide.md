@@ -296,7 +296,8 @@ lama** tetap sama meski internalnya bertipe.
 
 - `database.go`: `Open` (connect + ping 8 detik) → `migrate` (membuat index,
   idempoten) → `seed` (3 kelas dan 2 perangkat; idempoten via upsert
-  `$setOnInsert`; mahasiswa tidak di-seed). `Collection(name)` adalah
+  `$setOnInsert`; tombstone `deleted_classes` mencegah kelas seed yang sudah
+  dihapus muncul lagi; mahasiswa tidak di-seed). `Collection(name)` adalah
   helper akses koleksi.
 - `users.go`: `CreateUser` (bcrypt, password ≥ `MinPasswordLength` = 12,
   role terbatas `administrator`/`dosen`, `_id` hex acak), `EnsureUser` (cek
@@ -375,6 +376,17 @@ lama** tetap sama meski internalnya bertipe.
   (`ErrNotLecturer`) agar admin tidak mengunci diri sendiri.
 - Endpoint JSON `DELETE /api/v1/students/{nim}`, `GET|POST /api/v1/staff`,
   `DELETE /api/v1/staff/{id}` memakai fungsi yang sama dengan fragment.
+
+### `internal/api/classes_admin.go` dan pengelolaan kelas
+
+- `ClassOptions` memuat opsi kelas dan membatasi dosen ke `class_ids`.
+- `CreateClass` memvalidasi kode/nama kelas; kelas baru yang dibuat dosen
+  otomatis ditambahkan ke cakupan akun pembuat.
+- `DeleteClass` hanya mengizinkan administrator atau dosen untuk kelas di
+  cakupan dosen. Penghapusan ditolak selama ada mahasiswa, relasi kelas,
+  perangkat, riwayat scan, atau akun staf lain yang masih merujuk kelas.
+- `deleted_classes` adalah tombstone agar tiga kelas bawaan yang dihapus tidak
+  dibuat kembali oleh seed saat aplikasi dimulai ulang.
 
 ### `services/face/` (Python)
 
@@ -522,9 +534,9 @@ dipakai di `$regex`.
    tersedia. Atur permission `.env` agar hanya dapat dibaca operator aplikasi.
 9. **Ping tanpa `device_id` memakai `ESP32-GED-A1` sebagai default.** Heartbeat
    hanya memperbarui perangkat yang sudah terdaftar dan tokennya valid.
-10. **Opsi filter kelas di view masih hardcoded** (`views/pages/mahasiswa.html`,
-    `views/pages/logs.html`). Menambah kelas di database tidak otomatis
-    menambah opsi filter.
+10. **Opsi filter kelas dimuat dari database.** `Web.render` meminta daftar
+    sesuai role melalui `ClassOptions`; dosen tidak melihat kelas di luar
+    `Principal.ClassIDs`.
 11. **Jangan menimpa filter scoping role.** Saat menambah filter dari input
     pengguna, gabungkan dengan filter role (mis. cek nilai ada di
     `principal.ClassIDs`), jangan menulis ulang key yang sama (contoh benar:

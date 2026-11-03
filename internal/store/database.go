@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -142,7 +143,8 @@ func (db *Database) migrate(ctx context.Context) error {
 }
 
 // seed meng-upsert data dasar (3 kelas dan 2 perangkat) dengan $setOnInsert:
-// dokumen yang sudah ada tidak ditimpa, dokumen yang hilang dibuat lagi.
+// dokumen yang sudah ada tidak ditimpa. Kelas yang dihapus ditandai agar tidak
+// dibuat kembali pada startup berikutnya.
 // Mahasiswa TIDAK di-seed; semuanya didaftarkan manual lewat dashboard atau
 // POST /api/v1/students, jadi mahasiswa yang dihapus tidak muncul kembali.
 func (db *Database) seed(ctx context.Context) error {
@@ -152,7 +154,14 @@ func (db *Database) seed(ctx context.Context) error {
 		{"IK24-C", "Ilmu Komputer C"},
 	}
 	for _, class := range classes {
-		_, err := db.Collection("classes").UpdateOne(ctx,
+		err := db.Collection("deleted_classes").FindOne(ctx, bson.M{"_id": class.ID}).Err()
+		if err == nil {
+			continue
+		}
+		if !errors.Is(err, mongo.ErrNoDocuments) {
+			return fmt.Errorf("check deleted class %s: %w", class.ID, err)
+		}
+		_, err = db.Collection("classes").UpdateOne(ctx,
 			bson.M{"_id": class.ID},
 			bson.M{"$setOnInsert": bson.M{"_id": class.ID, "name": class.Name}},
 			options.Update().SetUpsert(true),

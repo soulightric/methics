@@ -16,6 +16,7 @@ Python bersifat internal di belakang Go (kontraknya di
 | Halaman | `GET /`, `/mahasiswa`, `/kelas`, `/laporan`, `/logs` | session staf | HTML |
 | Halaman | `GET /akses` | session administrator (dosen dialihkan ke `/`) | HTML |
 | Auth | `GET /login`, `POST /login`, `POST /logout` | — / CSRF | HTML / redirect |
+| Easter egg | `GET /eggs` | publik | halaman putih; ketuk gambar telur untuk memulai audio dari `/static/media/` |
 | Fragment | `GET/POST/DELETE /partials/*` (§5) | session staf (+ CSRF untuk POST/DELETE) | HTML |
 | API staf | `GET /api/v1/dashboard`, `/classes`, `/reports` | session staf | JSON |
 | API staf | `POST /api/v1/students`, `/students/{nim}/face-template` | session administrator + CSRF | JSON |
@@ -411,7 +412,9 @@ Filter `class` dari dosen yang bukan kelasnya menghasilkan data kosong.
 | Endpoint | Guna | Akses | Penyegaran |
 | --- | --- | --- | --- |
 | `GET /partials/dashboard` | metrik, kehadiran per kelas, status perangkat/face service, 8 baris pertama roster hari ini (beserta scan terakhirnya) | staf | `load, every 15s` |
-| `GET /partials/kelas` | ringkasan + tabel kelas | staf | `load, every 15s` |
+| `GET /partials/kelas` | ringkasan + tabel kelas + form pengelolaan kelas | staf | `load, every 15s` |
+| `POST /partials/kelas` | tambah kelas (`classID`, `name`); kelas dosen otomatis masuk cakupan pembuat | administrator, dosen | — |
+| `DELETE /partials/kelas/{classID}` | hapus kelas yang tidak dipakai mahasiswa, perangkat, riwayat, atau akun staf lain | administrator, dosen (dosen hanya kelas dalam cakupannya) | konfirmasi `hx-confirm` |
 | `GET /partials/laporan` | rekap hari ini, komposisi status, kehadiran per kelas, 50 scan terbaru | staf | `load, every 15s` |
 | `GET /partials/mahasiswa?q=&class=` | tabel roster (+ ringkasan via `hx-swap-oob`) | staf | `load, every 15s`, ketik, ganti filter, event `roster-changed` |
 | `GET /partials/mahasiswa/form` | form dialog pendaftaran | administrator | sekali saat halaman dimuat |
@@ -422,6 +425,13 @@ Filter `class` dari dosen yang bukan kelasnya menghasilkan data kosong.
 | `POST /partials/akses/lecturers` | buat akun dosen (form `username`, `displayName`, `password`, `classIds` berulang) → fragment akun | administrator | — |
 | `DELETE /partials/akses/staff/{id}` | hapus akun dosen (konfirmasi) → fragment akun | administrator | — |
 | `GET /partials/logs?q=&status=&class=` | log pemindaian seluruh waktu, maks 200 baris (+ ringkasan via `hx-swap-oob`) | staf | `load, every 15s`, ketik, ganti filter |
+
+ID kelas dinormalisasi menjadi huruf besar dan harus 2–32 karakter alfanumerik
+atau tanda hubung; nama wajib diisi dan maksimal 120 karakter. Kelas awal yang
+dihapus ditandai agar tidak dibuat ulang saat server restart. Penghapusan gagal
+jika kelas masih direferensikan mahasiswa, relasi `class_students`, perangkat,
+riwayat scan, atau akun staf lain. Opsi kelas pada halaman Mahasiswa dan Log
+dibaca dari database dan dibatasi ke kelas dosen yang sedang login.
 
 Konvensi:
 

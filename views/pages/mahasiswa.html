@@ -15,7 +15,7 @@
           hx-get="/partials/mahasiswa" hx-target="#rosterRegion" hx-swap="innerHTML"
           hx-trigger="load, every 15s, keyup changed delay:300ms, change, roster-changed from:body">
       <label class="search"><i data-lucide="search"></i><input id="studentSearch" name="q" type="search" placeholder="Cari nama atau NIM..." aria-label="Cari mahasiswa"></label>
-      <label class="select-wrap"><select id="studentClassFilter" name="class" aria-label="Filter kelas"><option value="all">Semua kelas</option><option value="IK24-A">IK24-A</option><option value="IK24-B">IK24-B</option><option value="IK24-C">IK24-C</option></select><i data-lucide="chevron-down"></i></label>
+      <label class="select-wrap"><select id="studentClassFilter" name="class" aria-label="Filter kelas"><option value="all">Semua kelas</option>{{range .Classes}}<option value="{{.ID}}">{{.Name}} ({{.ID}})</option>{{end}}</select><i data-lucide="chevron-down"></i></label>
     </form>
   </div>
   <div id="rosterRegion">

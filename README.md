@@ -18,6 +18,7 @@ Untuk orientasi cepat AI/kontributor berikutnya, mulai dari
 | --- | --- |
 | Backend Go + dashboard staf (login, ringkasan, mahasiswa, kelas, laporan, log, akses) | berjalan |
 | Administrasi: tambah/hapus mahasiswa, buat/hapus akun dosen | berjalan (administrator) |
+| Pengelolaan kelas: tambah/hapus kelas | berjalan (administrator dan dosen; penghapusan diblokir bila kelas masih dipakai) |
 | MongoDB (index + seed kelas/perangkat otomatis) | berjalan |
 | Firmware perangkat absensi ESP32 + ESP32-CAM (UART) (`devices/esp32_scanner`, `devices/esp32cam_uart`) | tersedia; commissioning perangkat keras wajib sebelum pemasangan |
 | Firmware tambahan | alat commissioning perangkat, tidak termasuk runtime server |
@@ -111,15 +112,19 @@ reverse proxy dan infrastruktur deployment.
 | --- | --- | --- |
 | `/` | ringkasan absensi hari ini, status perangkat & face service | staf |
 | `/mahasiswa` | roster, pendaftaran & penghapusan mahasiswa, enrollment wajah 1–6 foto, lihat foto enrollment | staf (aksi tulis: administrator) |
-| `/kelas` | kehadiran dan enrollment per kelas | staf |
+| `/kelas` | kehadiran dan enrollment per kelas; tambah/hapus kelas | staf (pengelolaan kelas: administrator dan dosen) |
 | `/laporan` | rekap status scan hari ini, kehadiran per kelas, 50 scan terbaru, cetak | staf |
 | `/logs` | log pemindaian seluruh waktu (200 terbaru) dengan filter status, kelas, pencarian, dan tautan foto capture | staf |
 | `/akses` | buat & hapus akun dosen, daftar akun staf, matriks role | administrator |
 | `/login` | login staf | publik |
+| `/eggs` | halaman putih; ketuk gambar telur untuk memutar musik | publik |
 
-Dosen hanya melihat kelas yang ditugaskan (`users.class_ids`). Halaman
-dirender Go dengan `html/template`; data dimuat dan disegarkan oleh htmx dari
-`/partials/*` (bukan SPA/JSON render).
+Dosen hanya melihat kelas yang ditugaskan (`users.class_ids`). Dosen yang
+membuat kelas otomatis mendapat penugasan kelas itu; penghapusan hanya tersedia
+untuk kelas dalam cakupannya dan ditolak selama masih dipakai mahasiswa,
+perangkat, riwayat scan, atau akun staf lain. Filter kelas di Mahasiswa dan Log
+diambil dari database. Halaman dirender Go dengan `html/template`; data dimuat
+dan disegarkan oleh htmx dari `/partials/*` (bukan SPA/JSON render).
 
 ## Konfigurasi
 

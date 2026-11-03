@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"dash.algorithmics/internal/api"
 	"dash.algorithmics/internal/model"
 	"dash.algorithmics/internal/security"
 	"github.com/gorilla/csrf"
@@ -14,11 +15,12 @@ import (
 // Web merender halaman penuh (shell). Datanya dimuat htmx dari /partials/*.
 type Web struct {
 	templates map[string]*template.Template
+	server    *api.Server
 }
 
 // NewWeb mem-parse setiap halaman bersama layout dan partial sekali saat start;
-// perubahan .html baru terlihat setelah restart (air menanganinya otomatis).
-func NewWeb(viewDir string) (*Web, error) {
+// perubahan template baru terlihat setelah restart.
+func NewWeb(server *api.Server, viewDir string) (*Web, error) {
 	pages := []string{"dashboard", "mahasiswa", "kelas", "laporan", "logs", "akses"}
 	views := make(map[string]*template.Template, len(pages))
 	layoutPath := filepath.Join(viewDir, "layouts", "base.html")
@@ -43,7 +45,12 @@ func NewWeb(viewDir string) (*Web, error) {
 		return nil, err
 	}
 	views["login"] = login
-	return &Web{templates: views}, nil
+	eggs, err := template.ParseFiles(filepath.Join(viewDir, "eggs.html"))
+	if err != nil {
+		return nil, err
+	}
+	views["eggs"] = eggs
+	return &Web{templates: views, server: server}, nil
 }
 
 func (web *Web) Dashboard(w http.ResponseWriter, r *http.Request) {
@@ -70,6 +77,13 @@ func (web *Web) Access(w http.ResponseWriter, r *http.Request) {
 	web.render(w, r, "akses")
 }
 
+func (web *Web) Eggs(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if err := web.templates["eggs"].ExecuteTemplate(w, "eggs", nil); err != nil {
+		http.Error(w, "Gagal merender halaman.", http.StatusInternalServerError)
+	}
+}
+
 func (web *Web) render(w http.ResponseWriter, r *http.Request, pageName string) {
 	user, ok := security.PrincipalFromContext(r.Context())
 	if !ok {
@@ -82,6 +96,16 @@ func (web *Web) render(w http.ResponseWriter, r *http.Request, pageName string) 
 	}
 	roleClasses := strings.Join(user.ClassIDs, ",")
 	data := model.NewPage(pageName, user.Role, user.DisplayName, roleClasses, csrf.Token(r))
+	if pageName == "mahasiswa" || pageName == "logs" {
+		classes, err := web.server.ClassOptions(r.Context(), user.Role, user.ClassIDs)
+		if err != nil {
+			http.Error(w, "Gagal memuat pilihan kelas.", http.StatusInternalServerError)
+			return
+		}
+		for _, class := range classes {
+			data.Classes = append(data.Classes, model.ClassOption{ID: class.ID, Name: class.Name})
+		}
+	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := web.templates[pageName].ExecuteTemplate(w, "layout", data); err != nil {
 		http.Error(w, "Gagal merender halaman.", http.StatusInternalServerError)

@@ -48,6 +48,8 @@ func (p *Partials) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /partials/dashboard", p.dashboard)
 	mux.HandleFunc("GET /partials/kelas", p.kelas)
+	mux.HandleFunc("POST /partials/kelas", p.createClass)
+	mux.HandleFunc("DELETE /partials/kelas/{classID}", p.deleteClass)
 	mux.HandleFunc("GET /partials/laporan", p.laporan)
 	mux.HandleFunc("GET /partials/mahasiswa", p.mahasiswa)
 	mux.HandleFunc("GET /partials/mahasiswa/form", p.mahasiswaForm)
@@ -85,6 +87,13 @@ type kelasFragmentData struct {
 		Present  int
 	}
 	Classes []api.ClassRow
+	Role    string
+	Notice  string
+	Error   string
+	Form    struct {
+		ID   string
+		Name string
+	}
 }
 
 func (p *Partials) kelas(w http.ResponseWriter, r *http.Request) {
@@ -92,6 +101,10 @@ func (p *Partials) kelas(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	p.renderKelas(w, r, principal, "", "", "", "")
+}
+
+func (p *Partials) renderKelas(w http.ResponseWriter, r *http.Request, principal security.Principal, notice, errMessage, classID, className string) {
 	ctx := r.Context()
 	rows, err := p.server.ClassRows(ctx, principal.Role, principal.ClassIDs)
 	if err != nil {
@@ -109,7 +122,9 @@ func (p *Partials) kelas(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	data := kelasFragmentData{Classes: rows}
+	data := kelasFragmentData{Classes: rows, Role: principal.Role, Notice: notice, Error: errMessage}
+	data.Form.ID = classID
+	data.Form.Name = className
 	data.Summary.Classes = len(rows)
 	data.Summary.Students = students
 	data.Summary.Enrolled = enrolled
@@ -117,6 +132,89 @@ func (p *Partials) kelas(w http.ResponseWriter, r *http.Request) {
 		data.Summary.Present += row.Present
 	}
 	p.render(w, "kelas_fragment", data)
+}
+
+func classManagerOrError(w http.ResponseWriter, r *http.Request) (security.Principal, bool) {
+	principal, ok := principalOrError(w, r)
+	if !ok {
+		return principal, false
+	}
+	if principal.Role != "administrator" && principal.Role != "dosen" {
+		http.Error(w, "Hanya administrator atau dosen yang dapat mengelola kelas.", http.StatusForbidden)
+		return principal, false
+	}
+	return principal, true
+}
+
+func (p *Partials) createClass(w http.ResponseWriter, r *http.Request) {
+	principal, ok := classManagerOrError(w, r)
+	if !ok {
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, 4<<10)
+	if err := r.ParseForm(); err != nil {
+		p.renderKelas(w, r, principal, "", "Formulir kelas tidak valid atau terlalu besar.", "", "")
+		return
+	}
+	classID := strings.ToUpper(strings.TrimSpace(r.PostFormValue("classID")))
+	className := strings.TrimSpace(r.PostFormValue("name"))
+	if err := p.server.CreateClass(r.Context(), principal.UserID, principal.Role, classID, className); err != nil {
+		p.renderKelas(w, r, principal, "", api.ClassManagementErrorMessage(err), classID, className)
+		return
+	}
+	notice := fmt.Sprintf("Kelas %s berhasil ditambahkan.", classID)
+	if err := p.setClassToast(w, notice, false); err != nil {
+		http.Error(w, "Gagal menyiapkan notifikasi pengelolaan kelas.", http.StatusInternalServerError)
+		return
+	}
+	if principal.Role == "dosen" {
+		principal.ClassIDs = append(principal.ClassIDs, classID)
+	}
+	p.renderKelas(w, r, principal, notice, "", "", "")
+}
+
+func (p *Partials) deleteClass(w http.ResponseWriter, r *http.Request) {
+	principal, ok := classManagerOrError(w, r)
+	if !ok {
+		return
+	}
+	classID := strings.ToUpper(strings.TrimSpace(r.PathValue("classID")))
+	err := p.server.DeleteClass(r.Context(), principal.UserID, principal.Role, principal.ClassIDs, classID)
+	if err != nil {
+		message := api.ClassManagementErrorMessage(err)
+		if triggerErr := p.setClassToast(w, message, true); triggerErr != nil {
+			http.Error(w, "Gagal menyiapkan notifikasi pengelolaan kelas.", http.StatusInternalServerError)
+			return
+		}
+		p.renderKelas(w, r, principal, "", message, "", "")
+		return
+	}
+	notice := fmt.Sprintf("Kelas %s berhasil dihapus.", classID)
+	if err := p.setClassToast(w, notice, false); err != nil {
+		http.Error(w, "Gagal menyiapkan notifikasi pengelolaan kelas.", http.StatusInternalServerError)
+		return
+	}
+	if principal.Role == "dosen" {
+		remaining := principal.ClassIDs[:0]
+		for _, id := range principal.ClassIDs {
+			if !strings.EqualFold(id, classID) {
+				remaining = append(remaining, id)
+			}
+		}
+		principal.ClassIDs = remaining
+	}
+	p.renderKelas(w, r, principal, notice, "", "", "")
+}
+
+func (p *Partials) setClassToast(w http.ResponseWriter, message string, isError bool) error {
+	trigger, err := json.Marshal(map[string]any{
+		"toast": map[string]any{"message": message, "error": isError},
+	})
+	if err != nil {
+		return err
+	}
+	w.Header().Set("HX-Trigger", string(trigger))
+	return nil
 }
 
 type laporanBreakdownRow struct {
@@ -371,6 +469,23 @@ func (p *Partials) enrollFace(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Gagal memuat roster mahasiswa.", http.StatusInternalServerError)
 		return
+	}
+	toastMessage := notice
+	if errMessage != "" {
+		toastMessage = errMessage
+	}
+	if toastMessage != "" {
+		trigger, err := json.Marshal(map[string]any{
+			"toast": map[string]any{
+				"message": toastMessage,
+				"error":   errMessage != "",
+			},
+		})
+		if err != nil {
+			http.Error(w, "Gagal menyiapkan notifikasi enrollment.", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("HX-Trigger", string(trigger))
 	}
 	p.render(w, "mahasiswa_fragment", data)
 }

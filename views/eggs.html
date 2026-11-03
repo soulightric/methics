@@ -1,0 +1,45 @@
+{{define "eggs"}}<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title></title>
+  <style>
+    html,body{width:100%;height:100%;margin:0;background:#fff}
+    body{display:grid;place-items:center}
+    #eggTap{position:relative;display:grid;place-items:center;width:180px;height:210px;border:0;background:transparent;cursor:pointer;touch-action:manipulation}
+    #eggTap svg{width:160px;height:190px;overflow:visible;filter:drop-shadow(0 10px 12px rgb(75 55 35 / 12%));transition:transform .18s ease}
+    #eggTap:hover svg{transform:translateY(-5px) rotate(-3deg)}
+    #eggTap:active svg{transform:scale(.94)}
+    #eggTap:focus-visible{outline:3px solid #e8aa55;outline-offset:8px;border-radius:50%}
+    #eggTap span{position:absolute;right:4px;bottom:15px;display:grid;place-items:center;width:54px;height:54px;border:3px solid #fff;border-radius:50%;background:#e8aa55;color:#fff;font:700 11px/1 system-ui,sans-serif;letter-spacing:.08em;box-shadow:0 3px 12px rgb(75 55 35 / 18%);transform:rotate(9deg)}
+    #eggTap[hidden]{display:none}
+    @media(prefers-reduced-motion:reduce){#eggTap svg{transition:none}}
+  </style>
+  <script src="/static/js/eggs.js" defer></script>
+</head>
+<body>
+  <button id="eggTap" type="button" aria-label="Ketuk telur untuk memutar musik">
+    <svg viewBox="0 0 160 190" role="img" aria-hidden="true">
+      <defs>
+        <linearGradient id="eggShell" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#fffdf7"/>
+          <stop offset=".58" stop-color="#f8edcf"/>
+          <stop offset="1" stop-color="#ecd8aa"/>
+        </linearGradient>
+      </defs>
+      <path d="M80 10C47 10 20 73 20 119c0 36 25 58 60 58s60-22 60-58C140 73 113 10 80 10Z"
+        fill="url(#eggShell)" stroke="#d7c49b" stroke-width="3"/>
+      <path d="M42 111c12-12 24 12 38 0s26 12 38 0" fill="none" stroke="#e5b95f" stroke-linecap="round" stroke-width="7"/>
+      <path d="M48 132c10-8 19 8 29 0s19 8 29 0" fill="none" stroke="#e99d83" stroke-linecap="round" stroke-width="6"/>
+      <path d="M57 47c-6 10-11 23-14 35" fill="none" stroke="#fff" stroke-linecap="round" stroke-width="7" opacity=".8"/>
+      <path d="m31 61 4-9 4 9 9 4-9 4-4 9-4-9-9-4 9-4Zm92 3 3-7 3 7 7 3-7 3-3 7-3-7-7-3 7-3Z"
+        fill="#f3cf75"/>
+    </svg>
+    <span>TAP</span>
+  </button>
+  <audio id="eggsMusic" loop preload="auto">
+    <source src="/static/media/Hava%20Nagila%20Original.mp3" type="audio/mpeg">
+  </audio>
+</body>
+</html>{{end}}

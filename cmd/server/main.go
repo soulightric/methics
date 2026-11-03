@@ -63,13 +63,13 @@ func main() {
 
 	staticDir := env("STATIC_DIR", "static")
 	viewDir := env("VIEW_DIR", "views")
-	web, err := controller.NewWeb(viewDir)
+	apiServer := api.New(database, config)
+	web, err := controller.NewWeb(apiServer, viewDir)
 	if err != nil {
 		log.Fatalf("load page templates: %v", err)
 	}
 	sessions := security.NewSessionManager(true)
 	authController := controller.NewAuth(database, sessions, web)
-	apiServer := api.New(database, config)
 	retentionCtx, stopRetention := context.WithCancel(context.Background())
 	defer stopRetention()
 	setupImageStorage(retentionCtx, apiServer, config)
@@ -105,6 +105,7 @@ func main() {
 	// Endpoint perangkat berada di luar sesi & CSRF; autentikasinya token/HMAC.
 	deviceAPI := apiServer.DeviceHandler()
 	router := http.NewServeMux()
+	router.HandleFunc("GET /eggs", web.Eggs)
 	router.Handle("POST /api/v1/scans", deviceAPI)
 	router.Handle("GET /api/v1/health", deviceAPI)
 	router.Handle("GET /api/v1/devices/ping", deviceAPI)

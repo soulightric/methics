@@ -28,6 +28,7 @@ Riwayat revisi:
 
 | Versi | Tanggal | Perubahan | Oleh |
 | --- | --- | --- | --- |
+| 0.8 | 2026-11-04 | Dosen dan administrator dapat menambah/menghapus kelas; filter kelas memakai data database; penghapusan kelas yang masih direferensikan ditolak | ISI: |
 | 0.7 | 2026-10-28 | Konfigurasi production-only; token face service dan heartbeat wajib; health read-only; dokumentasi diselaraskan; suite test otomatis dihapus dan status pemeliharaan diperbarui | ISI: |
 | 0.1 | ISI: | Kerangka awal dari kode yang ada | ISI: |
 | 0.6 | 2026-10-26 | Hapus mahasiswa (FR-STU-10), buat & hapus akun dosen (FR-AUTH-09, FR-AUTHZ-06 sebagian); matriks dihitung ulang | ISI: |
@@ -122,8 +123,8 @@ diekspos ke jaringan luar.
 
 | Aktor | Deskripsi | Hak akses |
 | --- | --- | --- |
-| Administrator | Staf pengelola sistem/roster | Semua kelas; kelola mahasiswa; enrollment; halaman akses |
-| Dosen | Pengajar | Hanya kelas yang ditugaskan (baca) |
+| Administrator | Staf pengelola sistem/roster | Semua kelas; kelola mahasiswa; enrollment; halaman akses; tambah/hapus kelas |
+| Dosen | Pengajar | Baca kelas yang ditugaskan; tambah kelas (otomatis ditugaskan kepadanya); hapus kelas dalam cakupannya jika tidak dipakai |
 | Perangkat (ESP32/ESP8266) | Klien mesin | Endpoint scan (token + HMAC), heartbeat ping, dan health |
 | Mahasiswa | Subjek absensi | Tidak punya akses aplikasi |
 | `ISI:` Operator/IT | ISI: bila ada | ISI: |
@@ -207,7 +208,7 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 | ID | Kebutuhan | Pri | Status |
 | --- | --- | --- | --- |
 | FR-CLASS-01 | Menampilkan ringkasan per kelas (jumlah mahasiswa, ter-enroll, hadir) | W | `[TERSEDIA]` |
-| FR-CLASS-02 | Administrator dapat membuat/mengubah/menghapus kelas | W | `[BELUM]` |
+| FR-CLASS-02 | Administrator dan dosen dapat membuat/menghapus kelas; penghapusan ditolak selama masih direferensikan | W | `[SEBAGIAN]` (tambah/hapus tersedia; ubah belum tersedia) |
 | FR-CLASS-03 | Kelas memiliki kode unik dan nama | W | `[TERSEDIA]` |
 
 ### 3.5 Mahasiswa & enrollment

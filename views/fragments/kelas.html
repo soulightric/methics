@@ -9,13 +9,23 @@
   <div class="summary-line"><span class="metric-icon orange"><i data-lucide="user-check"></i></span><span><strong
         id="classPresent">{{.Summary.Present}}</strong><small>Hadir hari ini</small></span></div>
 </section>
+{{if .Notice}}<div class="inline-alert success" role="status">{{.Notice}}</div>{{end}}
+{{if .Error}}<div class="inline-alert error" role="alert">{{.Error}}</div>{{end}}
 <section class="panel">
   <div class="panel-header" style="align-items:center;padding-bottom:15px">
     <div>
       <h2 class="panel-title">Daftar kelas</h2>
       <p class="panel-caption">Cakupan kelas mengikuti role session aktif.</p>
     </div>
-    <span class="connection-state">Data hari ini</span>
+    {{if or (eq .Role "administrator") (eq .Role "dosen")}}
+    <form class="class-create-form" hx-post="/partials/kelas" hx-target="#kelasContent" hx-swap="innerHTML">
+      <label class="field">ID kelas<input name="classID" required minlength="2" maxlength="32"
+          pattern="[A-Za-z0-9][A-Za-z0-9-]+" placeholder="mis. IK25-A" value="{{.Form.ID}}"></label>
+      <label class="field">Nama kelas<input name="name" required maxlength="120"
+          placeholder="mis. Ilmu Komputer A" value="{{.Form.Name}}"></label>
+      <button class="button primary" type="submit"><i data-lucide="plus"></i>Tambah kelas</button>
+    </form>
+    {{end}}
   </div>
   <div class="table-scroll">
     <table>
@@ -26,6 +36,7 @@
           <th>Template wajah</th>
           <th>Hadir hari ini</th>
           <th>Tingkat kehadiran</th>
+          {{if or (eq $.Role "administrator") (eq $.Role "dosen")}}<th>Aksi</th>{{end}}
         </tr>
       </thead>
       <tbody id="classTable">
@@ -38,10 +49,16 @@
           <td>
             <div class="progress"><span style="width:{{.AttendanceRate}}%"></span></div> {{.AttendanceRate}}%
           </td>
+          {{if or (eq $.Role "administrator") (eq $.Role "dosen")}}
+          <td><button class="button danger" type="button" hx-delete="/partials/kelas/{{.ID}}"
+              hx-target="#kelasContent" hx-swap="innerHTML"
+              hx-confirm="Hapus kelas {{.ID}} ({{.Name}})? Penghapusan hanya berhasil jika tidak ada mahasiswa, perangkat, riwayat, atau akun staf lain yang masih memakai kelas ini.">
+              <i data-lucide="trash-2"></i>Hapus</button></td>
+          {{end}}
         </tr>
         {{else}}
         <tr>
-          <td colspan="5">Belum ada kelas dalam cakupan.</td>
+          <td colspan="{{if or (eq $.Role "administrator") (eq $.Role "dosen")}}6{{else}}5{{end}}">Belum ada kelas dalam cakupan.</td>
         </tr>
         {{end}}
       </tbody>
