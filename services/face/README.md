@@ -1,124 +1,56 @@
-# Face Detection (SCRFD) & Face Recognition (ArcFace) Pipeline
+# Face Service Production
 
-Pipeline pengenalan wajah lengkap berbasis Python dan ONNX Runtime yang terintegrasi dengan **Hugging Face Hub** ([AkihikoSaburo/methics](https://huggingface.co/AkihikoSaburo/methics)):
-1. **Face Detection**: `scrfd_10g.onnx` (InsightFace SCRFD 10G dengan 5-point facial landmarks).
-2. **Face Alignment**: Melakukan transformasi kesamaan (similarity transformation via Umeyama/affine) 5-point landmarks ke ruang koordinat kanonikal ArcFace `(112, 112)`.
-3. **Face Recognition**: `arcface_r50_fp16.onnx` (ResNet-50 ArcFace) untuk menghasilkan feature embedding 512 dimensi ter-normalisasi L2.
-4. **Hugging Face Model Manager**: Mengunduh model secara on-demand, caching lokal otomatis, dan listing model langsung dari repo Hugging Face secara real-time.
-5. **REST API**: Semua fungsi diakses melalui endpoint FastAPI (tanpa webcam/GUI).
+Layanan internal FastAPI menggunakan SCRFD untuk deteksi wajah dan ArcFace
+untuk embedding 512-d. Go adalah satu-satunya gateway publik; Python tidak
+boleh diekspos langsung ke internet.
 
----
+## Deployment
 
-## 1. Setup Conda Profile & Instalasi Library
+Prasyarat: Docker Compose dan `.env` production di root repository. Pastikan
+`FACE_SERVICE_TOKEN` memiliki minimal 32 karakter dan nilainya sama untuk Go
+serta layanan ini.
 
-Gunakan profil conda `face_rec` yang telah dibuat:
+Dari root repository:
 
-```bash
-conda activate face_rec
+```powershell
+docker compose --env-file .env -f services/face/docker-compose.yml up -d --build
 ```
 
-Atau instalasi dependencies secara manual jika dibutuhkan:
-```bash
-pip install -r requirements.txt
+Port container hanya terikat ke `127.0.0.1` secara default. Bila backend Go
+berada pada host berbeda, atur `FACE_SERVICE_BIND_ADDRESS` ke alamat privat
+dan batasi firewall ke host Go saja. Model ONNX diunduh saat provisioning
+pertama dan disimpan pada volume Docker `face-model-cache`.
+
+Go harus dijalankan dengan `APP_ENV=production`, `FACE_SERVICE_URL` yang dapat
+dijangkau, serta `FACE_SERVICE_TOKEN` yang sama. Build backend dari root:
+
+```powershell
+go build -trimpath -ldflags="-s -w" -o bin/methics.exe ./cmd/server
+.\bin\methics.exe
 ```
 
----
+## API internal
 
-## 2. Struktur Direktori
+Semua endpoint memerlukan `Authorization: Bearer <FACE_SERVICE_TOKEN>`.
+Token dibandingkan secara waktu-konstan dan layanan menolak startup bila
+token tidak tersedia atau lebih pendek dari 32 karakter. Swagger, ReDoc,
+OpenAPI, dan CORS publik dinonaktifkan.
 
-```text
-FaceRecognition/
-├── models_config.json          # Konfigurasi model, default, metadata & threshold
-├── models/                     # Cache lokal model ONNX (auto-download dari Hugging Face)
-│   ├── face_detection/
-│   │   └── scrfd_10g.onnx
-│   └── face_recognition/
-│       └── arcface_r50_fp16.onnx
-├── src/
-│   ├── __init__.py             # Re-export API package
-│   ├── config.py               # Pengaturan konfigurasi & environment variable
-│   ├── model_manager.py        # Hugging Face Hub downloader, caching & model catalog
-│   ├── scrfd_detector.py       # SCRFDDetector ONNX inference dengan 5 landmarks
-│   ├── aligner.py              # FaceAligner canonical ArcFace 112x112 (5-pts similarity transform)
-│   ├── recognizer.py           # FaceRecognizer (ArcFace 512-d L2 normalized embedding)
-│   ├── pipeline.py             # FacePipeline orchestrator & singleton
-│   └── utils.py                # Reference landmarks, NMS utils
-├── main.py                     # CLI entrypoint — API launcher & model management
-├── api.py                      # FastAPI REST API service
-├── Dockerfile                  # Multi-stage production container build
-├── docker-compose.yml          # Container orchestration config
-├── requirements.txt            # Daftar library yang dibutuhkan
-└── README.md                   # Dokumentasi penggunaan
-```
+Go menggunakan endpoint berikut:
 
----
+| Python endpoint | Fungsi |
+| --- | --- |
+| `GET /health` | readiness dan model aktif |
+| `POST /embed` | satu gambar scan; menghasilkan embedding dan confidence |
+| `POST /register` | 1–6 gambar enrollment; satu embedding per gambar |
+| `GET /models` | katalog model lokal dan Hugging Face |
+| `POST /models/download` | mengunduh model |
+| `POST /models/switch` | mengganti model aktif |
 
-## 3. Manajemen Model dari Hugging Face Hub
+Operator administrator mengelola model lewat endpoint Go
+`/api/v1/face/models*`; jangan memanggil service Python dari browser atau
+perangkat. Perubahan recognition model membuat embedding lama tidak
+sebanding, sehingga semua mahasiswa harus di-enroll ulang sebelum scan.
 
-Proyek ini terhubung langsung ke repository Hugging Face: **`AkihikoSaburo/methics`**.
-File `.onnx` tidak perlu dimasukkan ke Git manual; pipeline akan mengunduhnya secara otomatis saat pertama kali dipanggil.
-
-### Melihat Daftar Model yang Tersedia:
-```bash
-python main.py --list-models
-```
-*Perintah ini akan meminta list file secara langsung ke Hugging Face Hub dan menampilkan status apakah file sudah terunduh di lokal beserta ukurannya.*
-
-### Mengunduh Model Tertentu Secara Manual (Opsional):
-```bash
-python main.py --download-model face_detection/yolo-facev2m.onnx
-```
-
----
-
-## 4. Menjalankan API Server
-
-Semua fungsi (ekstraksi embedding, registrasi mahasiswa, model management) diakses melalui REST API.
-
-### Cara Menjalankan:
-```bash
-# Default (host 0.0.0.0, port 8000)
-python main.py
-
-# Custom host & port
-python main.py --host 127.0.0.1 --port 9000
-
-# Development mode (auto-reload)
-python main.py --reload
-
-# Atau langsung via uvicorn
-uvicorn api:app --host 0.0.0.0 --port 8000 --reload
-```
-
-Dokumentasi interaktif Swagger UI tersedia di: `http://localhost:8000/docs`
-
-### Endpoint Utama:
-| Endpoint | Method | Deskripsi |
-|---|---|---|
-| `/health` | GET | Status server dan model yang sedang aktif |
-| `/models` | GET | Melihat katalog model dari Hugging Face Hub dan status download di lokal |
-| `/models/download` | POST | Mengunduh model tertentu dari Hugging Face ke disk server |
-| `/models/switch` | POST | Mengganti model deteksi atau recognizer yang sedang aktif di RAM secara instan |
-| `/embed` | POST | Ekstraksi embedding 512-d wajah utama (untuk absensi) |
-| `/register` | POST | Pendaftaran wajah mahasiswa (enrollment 1–6 foto pose berbeda) & ekstraksi template embedding |
-
----
-
-## 5. Contoh Penggunaan API
-
-### Ekstrak Embedding (Absensi):
-```bash
-curl -X POST http://localhost:8000/embed \
-  -F "image=@foto.jpg"
-```
-
-### Registrasi Wajah (Enrollment Mahasiswa):
-```bash
-curl -X POST "http://localhost:8000/register?student_id=12345678" \
-  -F "images=@depan.jpg" \
-  -F "images=@kiri.jpg" \
-  -F "images=@kanan.jpg" \
-  -F "images=@atas.jpg" \
-  -F "images=@bawah.jpg" \
-  -F "images=@senyum.jpg"
-```
+Lihat [../../docs/face-service.md](../../docs/face-service.md) untuk kontrak
+integrasi, konfigurasi, dan batasan sistem.

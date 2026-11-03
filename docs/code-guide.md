@@ -27,19 +27,14 @@ cmd/server/main.go            entry point: env, routing, middleware, bootstrap, 
 internal/api/server.go        endpoint JSON + query ber-scope role + domain method + error sentinel
 internal/api/face.go          klien face service, enrollment embedding, pencocokan cosine 1:N
 internal/api/scan.go          POST /api/v1/scans: frame multi, HMAC, konsensus frame, status + result
-internal/api/scan_test.go     unit test konsensus frame, status, hash/HMAC, pembacaan frame
-internal/api/face_test.go     unit test klien & pencocokan (tanpa MongoDB)
+internal/api/face_models.go   proxy API manajemen model face service (khusus administrator)
 internal/api/images.go        foto wajah di S3: unggah, otorisasi & stream, retensi
 internal/api/admin.go         hapus mahasiswa (+ data wajah/foto/scan), buat & hapus akun dosen + endpoint JSON-nya
-internal/api/admin_test.go    unit test validasi akun dosen (tanpa MongoDB)
-internal/api/images_test.go   unit test kunci objek, unggah gagal, storage nonaktif
 internal/storage/s3.go        klien S3 minimal (SigV4, gaya path) untuk Garage
-internal/storage/s3_test.go   vektor uji AWS SigV4 + round-trip ke S3 tiruan
 internal/controller/
   web.go                      render halaman penuh (shell) + login page
   partials.go                 render fragment htmx (/partials/*)
   admin_partials.go           fragment administrator: hapus mahasiswa, akun dosen (/akses)
-  fragments_test.go           render fragment akun staf & tombol hapus roster (tanpa MongoDB)
   auth.go                     login, logout, safeNext
 internal/model/page.go        view model untuk halaman (judul, role, tanggal, csrf)
 internal/security/middleware.go
@@ -47,13 +42,12 @@ internal/security/middleware.go
                               LoginRateLimit, SecurityHeaders (CSP), Recover
 internal/store/
   database.go                 Open (connect+ping MongoDB), migrate (index), seed (kelas/perangkat)
-  users.go                    User, CreateUser, EnsureUser, ResetUser, AuthenticateUser, UserByID,
+  users.go                    User, CreateUser, EnsureUser, AuthenticateUser, UserByID,
                               ListStaff, UsernameTaken, UserRole, DeleteUser, MinPasswordLength
 services/face/                face service Python (FastAPI: /health, /embed, /register → embedding ArcFace 512-d)
 devices/esp32_scanner/        firmware ESP32 utama (sensor, TFT, buzzer, Wi-Fi, scan, heartbeat)
 devices/esp32cam_uart/        firmware ESP32-CAM (foto via UART)
-devices/esp32cam_wifi/        firmware ESP32-CAM (mode uji Wi-Fi, pengganti UART)
-devices/{esp8266_ping,esp32cam_stream,algorithmics_engine_ultrasonic_buzzer}/  sketch uji
+devices/                        firmware absensi dan alat commissioning perangkat
 views/
   layouts/base.html           kerangka halaman (head, sidebar, topbar, content)
   pages/*.html                shell per halaman (isi div tempat htmx menaruh fragment)
@@ -152,13 +146,13 @@ respons `502` dan event **tidak** disimpan. Bila unggah foto gagal, event
 GET|POST /api/v1/devices/ping
   → (tanpa sesi, tanpa CSRF)
   → device_id dari form → query → header X-Device-Id → default "ESP32-GED-A1"
-  → validDeviceToken hanya bila APP_ENV=production
-  → UpdateOne devices {$set: last_seen, $setOnInsert: name} upsert=true
+  → validDeviceToken wajib
+  → UpdateOne devices {$set: last_seen} (tanpa upsert; ID harus terdaftar)
   → 200 JSON {status, device_id, last_seen, message}
 ```
 
-`GET /api/v1/health?device_id=…` melakukan upsert yang sama **tanpa** token.
-Lihat risiko di [devices.md](devices.md) §7.
+`GET /api/v1/health` hanya membaca status. Scan yang lolos validasi dan
+heartbeat terautentikasi memperbarui `devices.last_seen`.
 
 ## 4. Penjelasan per berkas
 
@@ -166,18 +160,16 @@ Lihat risiko di [devices.md](devices.md) §7.
 
 - Memuat `.env` dengan `godotenv.Overload` (menimpa environment; lihat jebakan
   no. 8), lalu membaca env lewat `api.ParseConfig()` dan `env()`.
-- Di luar production, `store.MinPasswordLength` diturunkan dari 12 ke 4
-  karakter (log `development mode: …`).
-- **Menolak start** bila `CSRF_SECRET` atau `DEVICE_TOKEN` < 32 karakter (semua
-  mode); `FACE_SERVICE_TOKEN` < 32 karakter ditegakkan di mode production.
+- **Hanya menerima `APP_ENV=production`**; mode lain ditolak.
+- **Menolak start** bila `CSRF_SECRET`, `DEVICE_TOKEN`, atau
+  `FACE_SERVICE_TOKEN` < 32 karakter, `MONGODB_URI` kosong, atau MongoDB tidak
+  dapat dijangkau.
 - `bootstrapStaff` membuat administrator pertama dari `BOOTSTRAP_ADMIN_*` bila
   koleksi `users` belum punya administrator aktif; dosen opsional dari
   `BOOTSTRAP_LECTURER_*` (dibuat lewat `EnsureUser`, jadi dilewati bila
   username sudah ada — kelasnya tidak diperbarui). Tidak ada akun demo bawaan.
-- `resetBootstrapStaff` (bila `BOOTSTRAP_RESET_PASSWORDS=true`, ditolak di
-  production) memanggil `store.ResetUser` untuk kedua akun bootstrap di setiap
-  start: password, role, kelas, dan status aktif disetel ulang, atau akun
-  dibuat bila belum ada.
+- Bootstrap hanya membuat akun awal; startup tidak pernah mengubah password,
+  role, kelas, atau status akun yang sudah ada.
 - `store.Open(MONGODB_URI, MONGODB_DATABASE)` — gagal konek/ping dalam 8 detik
   menghentikan proses.
 - `setupImageStorage` mengaktifkan penyimpanan foto bila `S3_*` diisi:
@@ -215,7 +207,7 @@ membungkus seluruh router di `main.go`.
 | `AllScanStatusCounts` | hitung status scan seluruh waktu |
 | `countStudents`, `countTemplates`, `countScans` | agregat dashboard |
 | `lastDeviceSeen` | dasar status online perangkat |
-| `faceHealth` | cek `/health` layanan Python |
+| `faceHealth` | cek `/health` layanan Python dengan bearer `FACE_SERVICE_TOKEN` |
 | `imageStorageHealth` | cek `HEAD` bucket S3 (di `images.go`) |
 
 Pola berulang untuk scoping dosen: bila `role == "dosen"`, filter diberi
@@ -284,8 +276,8 @@ lama** tetap sama meski internalnya bertipe.
 
 - `NewWeb` mem-parse tiap halaman (`dashboard`, `mahasiswa`, `kelas`,
   `laporan`, `logs`, `akses`) bersama layout + partials (sidebar, topbar,
-  toast) sekali saat startup. **Konsekuensi: mengubah `.html` butuh restart**
-  (sudah ditangani air).
+  toast) sekali saat startup. **Konsekuensi: mengubah `.html` memerlukan
+  restart server.**
 - `render` menolak bila principal tidak ada, mengalihkan non-admin dari
   `/akses`, dan mengeksekusi template `layout`.
 
@@ -293,7 +285,7 @@ lama** tetap sama meski internalnya bertipe.
 
 | Simbol | Perilaku |
 | --- | --- |
-| `NewSessionManager` | SCS; cookie `itbjh_session`, lifetime 8 jam, idle 30 menit, HttpOnly, SameSite Lax, `Secure` bila production |
+| `NewSessionManager` | SCS; cookie `itbjh_session`, lifetime 8 jam, idle 30 menit, HttpOnly, SameSite Lax, selalu `Secure` |
 | `RequireSession(…, apiRequest)` | Ambil `user_id` sesi → muat user aktif dari koleksi `users` (termasuk `class_ids`) → taruh `Principal`. Gagal: JSON 401 (`apiRequest=true`) atau redirect `/login?next=…` (`false`) |
 | `RequireRole` | 403 JSON untuk `/api/`, redirect `/` untuk halaman |
 | `LoginRateLimit(10, 5m)` | Per `RemoteAddr`, jendela 5 menit, `Retry-After` pada 429 |
@@ -306,10 +298,9 @@ lama** tetap sama meski internalnya bertipe.
   idempoten) → `seed` (3 kelas dan 2 perangkat; idempoten via upsert
   `$setOnInsert`; mahasiswa tidak di-seed). `Collection(name)` adalah
   helper akses koleksi.
-- `users.go`: `CreateUser` (bcrypt, password ≥ `MinPasswordLength`: 12 di
-  production, 4 di development, role terbatas `administrator`/`dosen`, `_id`
-  hex acak), `EnsureUser` (cek username case-insensitive), `ResetUser`
-  (setel ulang/buat akun bootstrap), `AuthenticateUser` (username
+- `users.go`: `CreateUser` (bcrypt, password ≥ `MinPasswordLength` = 12,
+  role terbatas `administrator`/`dosen`, `_id` hex acak), `EnsureUser` (cek
+  username case-insensitive), `AuthenticateUser` (username
   case-insensitive lewat regex yang di-escape; perbandingan hash dummy untuk
   menyamakan waktu saat user tidak ada), `UserByID` (menolak akun nonaktif),
   `CountUsersByRole` (hanya akun aktif), serta `ListStaff`, `UsernameTaken`,
@@ -365,7 +356,7 @@ lama** tetap sama meski internalnya bertipe.
   `IMAGE_RETENTION_DAYS` / `IMAGE_REVIEW_RETENTION_DAYS`, lalu `$unset`
   `image_key`. Event absensinya tidak dihapus.
 - `storage.S3` ditulis dengan pustaka standar (AWS Signature V4, gaya path)
-  supaya tidak menambah dependensi; diuji dengan vektor resmi AWS.
+  supaya tidak menambah dependensi.
 
 ### `internal/api/admin.go`
 
@@ -376,8 +367,7 @@ lama** tetap sama meski internalnya bertipe.
 - `CreateLecturer`: username dinormalisasi huruf kecil dan dicek
   `^[a-z0-9._-]{3,32}$`, password ≥ `store.MinPasswordLength`, minimal satu
   kelas yang ada di `classes`, username belum dipakai (case-insensitive).
-  Validasi format berjalan sebelum menyentuh MongoDB (diuji di
-  `admin_test.go`).
+  Validasi format berjalan sebelum menyentuh MongoDB.
 - `DeleteLecturer`: hanya akun ber-role `dosen`; administrator ditolak
   (`ErrNotLecturer`) agar admin tidak mengunci diri sendiri.
 - Endpoint JSON `DELETE /api/v1/students/{nim}`, `GET|POST /api/v1/staff`,
@@ -385,12 +375,11 @@ lama** tetap sama meski internalnya bertipe.
 
 ### `services/face/` (Python)
 
-FastAPI stateless milik tim ML (SCRFD + ArcFace). Go hanya memakai
-`GET /health`, `POST /embed`, dan `POST /register` (tanpa `return_aligned`).
-`main.py` adalah peluncur uvicorn (`--host`, `--port`, `--reload`,
-`--workers`, `--list-models`, `--download-model`).
-Butuh Python 3.10–3.12. Detail: [face-service.md](face-service.md) dan
-`services/face/README.md`.
+FastAPI stateless (SCRFD + ArcFace). Semua route memerlukan bearer
+`FACE_SERVICE_TOKEN`; Go memakai `/health`, `/embed`, `/register`, dan API
+manajemen model. Dokumentasi interaktif dinonaktifkan. `main.py` adalah
+peluncur uvicorn production (`--host`, `--port`, `--workers`). Detail:
+[face-service.md](face-service.md) dan `services/face/README.md`.
 
 ### `devices/esp32_scanner/` dan `devices/esp32cam_uart/`
 
@@ -412,7 +401,7 @@ Butuh Python 3.10–3.12. Detail: [face-service.md](face-service.md) dan
   di UART1 (GPIO14/15), balasan `IMG <len> <crc>` + JPEG. Sensor power-down
   (PWDN) saat idle; `ON` = `esp_camera_init` + buang `WARMUP_FRAMES`, lalu
   driver terus menangkap ke 2 buffer PSRAM (`CAMERA_GRAB_LATEST`).
-- `esp32cam_wifi.ino` (mode uji): fungsi kamera sama, tetapi lewat `WebServer`
+- `esp32cam_wifi.ino` (commissioning): fungsi kamera sama, tetapi lewat `WebServer`
   port 80 (`/ping`, `/on`, `/capture`, `/off`, header `X-Cam-Token`) dan mDNS
   `methics-cam`. Di `esp32_scanner.ino`, `CAM_LINK_WIFI` memilih implementasi
   `camPing`/`camOn`/`camOff`/`camCapture`: blok `#if CAM_LINK_WIFI` (HTTPClient,
@@ -423,7 +412,7 @@ Butuh Python 3.10–3.12. Detail: [face-service.md](face-service.md) dan
 
 ### `devices/esp8266_ping/esp8266_ping.ino`
 
-Sketch uji ESP8266 yang mengirim `POST /api/v1/devices/ping` setiap 15 detik.
+Sketch commissioning ESP8266 yang mengirim `POST /api/v1/devices/ping` setiap 15 detik.
 Konfigurasi dan peringatan kredensial: [devices.md](devices.md) §4.
 
 ## 5. Model data (MongoDB)
@@ -511,8 +500,8 @@ dipakai di `$regex`.
 1. **Token CSRF di HTML ter-escape.** `html/template` menulis `+` sebagai
    `&#43;`. Kalau membaca token dari HTML (mis. lewat skrip), HTML-decode dulu,
    atau ambil dari `meta[name="csrf-token"]` seperti `app.js`.
-2. **Template di-parse sekali saat startup.** Perubahan `.html` tidak muncul
-   tanpa restart; `air` sudah menangani ini.
+2. **Template di-parse sekali saat startup.** Perubahan `.html` memerlukan
+   restart proses.
 3. **`/partials/*` wajib di belakang session.** Handler-nya bergantung pada
    `Principal` di context; memasangnya tanpa `RequireSession` akan 401.
 4. **Jangan tambahkan inline script.** CSP hanya mengizinkan `script-src 'self'`;
@@ -521,18 +510,15 @@ dipakai di `$regex`.
    waktu selalu sebagai RFC3339 UTC (`time.Now().UTC().Format(time.RFC3339)`).
    Format lain (mis. offset `+08:00`) merusak perbandingan string. Batas hari
    mengikuti zona waktu **server**.
-6. **`.env` tidak boleh ber-BOM.** PowerShell 5.1 `Set-Content -Encoding utf8`
-   menulis BOM dan membuat parser `godotenv` air gagal memuat seluruh file.
-   Pakai `UTF8Encoding($false)` atau `-Encoding ascii`.
+6. **`.env` tidak boleh ber-BOM.** Simpan UTF-8 tanpa BOM agar parser
+   `godotenv` membaca konfigurasi dengan benar.
 7. **Satu `DEVICE_TOKEN` untuk semua perangkat.** Belum ada secret per
    perangkat; lihat risiko di [HANDOFF.md](../HANDOFF.md) §Batasan.
 8. **`.env` dimuat saat startup Go dan menimpa environment.** `main.go` memakai
-   `godotenv.Overload()`, karena terminal VS Code (`python.terminal.useEnvFile`)
-   dan `air` (`env_files`) menyuntikkan isi `.env` saat dibuka; dengan
-   `Load()` biasa, nilai lama itu menang dan perubahan `.env` diabaikan. Untuk
-   memakai nilai dari environment, hapus baris tersebut dari `.env`.
-9. **Ping tanpa `device_id` menandai `ESP32-GED-A1`.** Perangkat yang lupa
-   mengirim ID akan membuat perangkat A1 tampak online.
+   `godotenv.Overload()`; gunakan environment proses bila `.env` tidak
+   tersedia. Atur permission `.env` agar hanya dapat dibaca operator aplikasi.
+9. **Ping tanpa `device_id` memakai `ESP32-GED-A1` sebagai default.** Heartbeat
+   hanya memperbarui perangkat yang sudah terdaftar dan tokennya valid.
 10. **Opsi filter kelas di view masih hardcoded** (`views/pages/mahasiswa.html`,
     `views/pages/logs.html`). Menambah kelas di database tidak otomatis
     menambah opsi filter.

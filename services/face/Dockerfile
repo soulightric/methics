@@ -52,17 +52,17 @@ WORKDIR /app
 # Copy application modules and entrypoints
 COPY src/ ./src/
 COPY main.py api.py ./
-COPY models/ ./models/
 
-# Set ownership to non-root user
-RUN chown -R appuser:appuser /app
+# The model manager downloads models into these writable cache directories.
+RUN mkdir -p /app/models/face_detection /app/models/face_recognition && \
+    chown -R appuser:appuser /app
 USER appuser
 
 # Environment defaults
-ENV DET_MODEL_PATH="models/face_detection/yolo-facev2s.onnx" \
+ENV DET_MODEL_PATH="models/face_detection/scrfd_10g.onnx" \
     REC_MODEL_PATH="models/face_recognition/arcface_r50_fp16.onnx" \
-    CONF_THRESHOLD="0.35" \
-    IOU_THRESHOLD="0.45" \
+    CONF_THRESHOLD="0.50" \
+    IOU_THRESHOLD="0.40" \
     SIM_THRESHOLD="0.45" \
     API_HOST="0.0.0.0" \
     API_PORT="8000"
@@ -71,7 +71,7 @@ EXPOSE 8000
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
-    CMD python -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"
+    CMD python -c "import os, urllib.request; request=urllib.request.Request('http://localhost:8000/health', headers={'Authorization':'Bearer '+os.environ['FACE_SERVICE_TOKEN']}); urllib.request.urlopen(request, timeout=5)"
 
 # Run uvicorn single worker (in-process ONNX model)
 CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

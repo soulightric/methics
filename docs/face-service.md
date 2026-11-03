@@ -2,8 +2,8 @@
 
 > Status: **[TERSEDIA]**. Layanan ada di `services/face/` (FastAPI + ONNX
 > Runtime: SCRFD untuk deteksi, ArcFace R50 untuk embedding 512-d,
-> model diunduh dari Hugging Face `AkihikoSaburo/methics`). Cara menjalankan
-> layanannya sendiri ada di `services/face/README.md`.
+> model diunduh dari Hugging Face `AkihikoSaburo/methics`). Deployment memakai
+> Docker Compose, bearer token wajib, dan akses jaringan internal.
 
 ## 1. Pembagian tugas: satu API publik
 
@@ -44,8 +44,11 @@ enrollment, pencocokan), dipanggil dari `EnrollFace` dan `receiveScan` di
 | `POST /models/download` | mengunduh model (via Go) | JSON `model_id`, opsional `force` | status, `model_id`, path, pesan |
 | `POST /models/switch` | mengganti model aktif (via Go) | JSON opsional `det_model`, `rec_model`, `conf_threshold`, `iou_threshold` | status dan model aktif |
 
-Keduanya memilih **wajah dengan confidence deteksi tertinggi** pada tiap
-foto; foto berisi beberapa orang tidak ditolak oleh Python, jadi pastikan
+Semua endpoint Python mewajibkan bearer `FACE_SERVICE_TOKEN` yang diverifikasi
+dengan perbandingan waktu-konstan. OpenAPI, Swagger, ReDoc, dan CORS publik
+dinonaktifkan. Go mengirim token pada setiap request, termasuk health check.
+Python memilih **wajah dengan confidence deteksi tertinggi** pada tiap foto;
+foto berisi beberapa orang tidak ditolak, jadi pastikan
 foto enrollment hanya berisi mahasiswa yang bersangkutan. `return_aligned`
 tidak dipakai (crop wajah tidak dikirim balik). Endpoint manajemen model
 dapat diakses melalui Go pada `/api/v1/face/models`,
@@ -146,6 +149,7 @@ Sisi Go (`.env`):
 | Variabel | Default | Keterangan |
 | --- | --- | --- |
 | `FACE_SERVICE_URL` | `http://127.0.0.1:8000` | base URL face service (port default `main.py`/`api.py`) |
+| `FACE_SERVICE_TOKEN` | — | wajib minimal 32 karakter; harus sama dengan token Python |
 | `FACE_SIM_THRESHOLD` | `0.45` | ambang cosine similarity untuk scan dan cek duplikat; samakan dengan `SIM_THRESHOLD` di Python |
 | `FACE_POSE_THRESHOLD` | `0.30` | ambang kemiripan antar-foto dalam satu enrollment (cek konsistensi pose) |
 | `SCAN_MIN_MATCH_FRAMES` | `2` | jumlah frame scan yang harus cocok dengan mahasiswa yang sama agar langsung **Hadir** tanpa liveness dari perangkat |
@@ -156,59 +160,48 @@ Request enrollment juga mendapat batas baca/tulis sendiri **3 menit**
 server 15 detik, dan foto ke Garage diunggah paralel. Sebelumnya enrollment
 lebih dari ±2 foto HP bisa terputus di tengah jalan karena total waktunya
 melewati 15 detik.
-| `FACE_SERVICE_TOKEN` | kosong | dikirim sebagai `Authorization: Bearer`; **belum diperiksa oleh `api.py`** (lihat §7) |
 
 Sisi Python: lihat `services/face/src/config.py` (`DET_MODEL_PATH`,
-`REC_MODEL_PATH`, `CONF_THRESHOLD`, `SIM_THRESHOLD`, dst.). Host dan port
-diatur lewat argumen `main.py` (`--host`, `--port`).
+`REC_MODEL_PATH`, `CONF_THRESHOLD`, `SIM_THRESHOLD`, `FACE_SERVICE_TOKEN`,
+dst.). Host dan port diatur lewat argumen `main.py` (`--host`, `--port`).
 
-## 6. Menjalankan bersama (pengembangan)
+## 6. Deployment production
 
-Gunakan Python **3.10–3.12**: conda `face_rec` dari `environment.yml`
-(Python 3.10) atau venv. Python 3.15 belum didukung `numpy<2.3`/`onnxruntime`,
-sehingga `pip install` gagal.
+Jalankan Go dan Python dari konfigurasi production di `.env.example`.
+`FACE_SERVICE_TOKEN` harus sama di keduanya dan minimal 32 karakter. Secara
+default Compose hanya memublikasikan port Python pada loopback host.
 
 ```powershell
-# Terminal 1 — face service (dari services/face)
-conda activate face_rec
-python main.py --host 127.0.0.1 --port 8000
-# atau: uvicorn api:app --host 127.0.0.1 --port 8000
-
-# Terminal 2 — backend Go (dari root proyek)
-air        # atau: go run ./cmd/server
+docker compose --env-file .env -f services/face/docker-compose.yml up -d --build
+go build -trimpath -ldflags="-s -w" -o bin/methics.exe ./cmd/server
+.\bin\methics.exe
 ```
 
-> `python main.py` tanpa argumen mendengarkan di `0.0.0.0` (semua
-> interface). Untuk pengembangan di satu PC selalu tambahkan
-> `--host 127.0.0.1` karena face service belum punya autentikasi.
+Jika Go berjalan di host berbeda, atur `FACE_SERVICE_BIND_ADDRESS` ke alamat
+privat face service dan batasi firewall agar hanya host Go yang dapat
+mengaksesnya. Jangan memublikasikan port Python ke internet.
 
 Cek integrasi:
 
 ```bash
 curl http://localhost:8080/api/v1/health
-# {"faceVerification":{"online":true,"provider":"Python face service",
-#   "detectionModel":"face_detection/scrfd_10g.onnx",
-#   "recognitionModel":"face_recognition/arcface_r50_fp16.onnx"},"status":"ok"}
 ```
 
-Lalu lakukan enrollment dari halaman **Mahasiswa** (pilih 1–6 foto
-sekaligus), dan uji scan dengan klien Python di `docs/devices.md` §6 (tanpa
-perangkat keras), atau perangkat ESP32 (`docs/devices.md` §2.5).
+Lakukan enrollment melalui halaman **Mahasiswa** dan commissioning scan
+menggunakan perangkat absensi production (`docs/devices.md` §2).
 
-Pada request pertama setelah start, model sudah dimuat oleh `lifespan`
-FastAPI. Bila model belum ada di `services/face/models/`, layanan akan
-mengunduhnya dari Hugging Face saat start (butuh internet).
+FastAPI memuat model saat start; model yang belum ada di cache container
+diunduh dari Hugging Face. Egress internet harus tersedia saat provisioning
+awal. Cache model perlu dipersistenkan atau disediakan ulang sesuai kebijakan
+deployment.
 
 ## 7. Keamanan dan hal yang perlu diperhatikan
 
-- **Face service tidak memiliki autentikasi** dan memakai CORS `*`. Jalankan
-  dengan `--host 127.0.0.1` atau di jaringan internal saja; pada
-  `docker-compose.yml`, ganti `"8000:8000"` menjadi `"127.0.0.1:8000:8000"`
-  bila Go berjalan di mesin yang sama.
-- Mode `APP_ENV=production` tetap mewajibkan `FACE_SERVICE_TOKEN` ≥ 32
-  karakter di Go. Token itu sudah dikirim, tetapi baru berguna setelah
-  `api.py` memeriksanya (mis. dependency FastAPI yang membandingkan header
-  `Authorization`).
+- FastAPI memverifikasi bearer `FACE_SERVICE_TOKEN` pada semua endpoint;
+  startup gagal bila token kurang dari 32 karakter. API docs dan CORS publik
+  dinonaktifkan.
+- Port service harus tetap di loopback atau jaringan privat; bearer token
+  bukan pengganti isolasi jaringan.
 - **Ambang `0.45` belum dikalibrasi** dengan data kampus. Ukur FAR/FRR
   dengan beberapa foto per mahasiswa sebelum dipakai sungguhan.
 - Pencocokan memuat seluruh template tiap scan (O(N)); cukup untuk ratusan

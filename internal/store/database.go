@@ -16,9 +16,9 @@ type Database struct {
 	DB     *mongo.Database
 }
 
-// Open membuka koneksi ke MongoDB (default mongodb://10.100.1.11:27017, database
-// "attendance"), memastikan koneksi hidup dalam 8 detik, lalu menjalankan
-// migrate (index) dan seed. Keduanya idempoten dan berjalan di SETIAP start.
+// Open membuka koneksi ke MongoDB, memastikan koneksi hidup dalam 8 detik,
+// lalu menjalankan migrate (index) dan seed. Keduanya idempoten dan berjalan
+// di setiap startup.
 func Open(uri, dbName string) (*Database, error) {
 	if uri == "" {
 		uri = "mongodb://10.100.1.11:27017"
@@ -33,12 +33,12 @@ func Open(uri, dbName string) (*Database, error) {
 	clientOptions := options.Client().ApplyURI(uri)
 	client, err := mongo.Connect(ctx, clientOptions)
 	if err != nil {
-		return nil, fmt.Errorf("connect to mongodb (%s): %w", uri, err)
+		return nil, fmt.Errorf("connect to mongodb: %w", err)
 	}
 
 	if err = client.Ping(ctx, nil); err != nil {
 		_ = client.Disconnect(context.Background())
-		return nil, fmt.Errorf("ping mongodb (%s): %w", uri, err)
+		return nil, fmt.Errorf("ping mongodb: %w", err)
 	}
 
 	db := client.Database(dbName)

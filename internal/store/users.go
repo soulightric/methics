@@ -39,9 +39,8 @@ var ErrInvalidCredentials = errors.New("invalid username or password")
 var ErrUserExists = errors.New("username already exists")
 var dummyPasswordHash, _ = bcrypt.GenerateFromPassword([]byte("timing-equalization-password"), bcrypt.DefaultCost)
 
-// MinPasswordLength adalah panjang minimal password akun staf. Default 12;
-// cmd/server menurunkannya hanya bila APP_ENV bukan production.
-var MinPasswordLength = 12
+// MinPasswordLength adalah panjang minimal password akun staf.
+const MinPasswordLength = 12
 
 func (db *Database) CreateUser(ctx context.Context, username, password, displayName, role string, classIDs []string) error {
 	username = strings.TrimSpace(username)
@@ -92,41 +91,6 @@ func (db *Database) EnsureUser(ctx context.Context, username, password, displayN
 		return nil
 	}
 	return db.CreateUser(ctx, username, password, displayName, role, classIDs)
-}
-
-// ResetUser menyetel ulang password, role, kelas, dan status aktif akun
-// dengan username tersebut (tanpa membedakan huruf besar/kecil), atau
-// membuatnya bila belum ada. Dipakai bootstrap mode pengembangan
-// (BOOTSTRAP_RESET_PASSWORDS=true). created=true bila akun baru dibuat.
-func (db *Database) ResetUser(ctx context.Context, username, password, role string, classIDs []string) (bool, error) {
-	username = strings.TrimSpace(username)
-	if username == "" || len(password) < MinPasswordLength {
-		return false, fmt.Errorf("username required and password must be at least %d characters", MinPasswordLength)
-	}
-	if role != "administrator" && role != "dosen" {
-		return false, errors.New("unsupported staff role")
-	}
-	hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
-	if err != nil {
-		return false, fmt.Errorf("hash password: %w", err)
-	}
-	filter := bson.M{"username": bson.M{"$regex": "^" + regexp.QuoteMeta(username) + "$", "$options": "i"}}
-	if classIDs == nil {
-		classIDs = []string{}
-	}
-	result, err := db.Collection("users").UpdateOne(ctx, filter, bson.M{"$set": bson.M{
-		"password_hash": hash,
-		"role":          role,
-		"active":        true,
-		"class_ids":     classIDs,
-	}})
-	if err != nil {
-		return false, err
-	}
-	if result.MatchedCount > 0 {
-		return false, nil
-	}
-	return true, db.CreateUser(ctx, username, password, username, role, classIDs)
 }
 
 func (db *Database) AuthenticateUser(ctx context.Context, username, password string) (User, error) {

@@ -1,4 +1,4 @@
-# Core dependencies for YOLO Face Detection & ArcFace Recognition Pipeline
+# Core dependencies for SCRFD face detection & ArcFace recognition
 numpy
 opencv-python
 onnxruntime

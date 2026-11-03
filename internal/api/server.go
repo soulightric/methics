@@ -1207,8 +1207,8 @@ func EnrollErrorMessage(err error, detail map[string]any) string {
 }
 
 // devicePing: GET|POST /api/v1/devices/ping (heartbeat). ID dari form, query,
-// header X-Device-Id, atau default ESP32-GED-A1; token hanya diperiksa di
-// production. Melakukan upsert devices (lihat risiko di docs/devices.md §7).
+// header X-Device-Id, atau default ESP32-GED-A1; token wajib dan hanya
+// perangkat yang sudah terdaftar yang dapat memperbarui status.
 func (s *Server) devicePing(w http.ResponseWriter, r *http.Request) {
 	deviceID := strings.TrimSpace(r.FormValue("device_id"))
 	if deviceID == "" {
@@ -1221,22 +1221,22 @@ func (s *Server) devicePing(w http.ResponseWriter, r *http.Request) {
 		deviceID = "ESP32-GED-A1"
 	}
 
-	if s.config.Environment == "production" && !s.validDeviceToken(r) {
+	if !s.validDeviceToken(r) {
 		writeError(w, http.StatusUnauthorized, "invalid_token", "Device token tidak valid.")
 		return
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	_, err := s.db.Collection("devices").UpdateOne(r.Context(),
+	result, err := s.db.Collection("devices").UpdateOne(r.Context(),
 		bson.M{"_id": deviceID},
-		bson.M{
-			"$set":         bson.M{"last_seen": now},
-			"$setOnInsert": bson.M{"_id": deviceID, "name": "Perangkat " + deviceID},
-		},
-		options.Update().SetUpsert(true),
+		bson.M{"$set": bson.M{"last_seen": now}},
 	)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "database_error", "Gagal memperbarui status perangkat.")
+		return
+	}
+	if result.MatchedCount == 0 {
+		writeError(w, http.StatusForbidden, "unknown_device", "Perangkat tidak terdaftar.")
 		return
 	}
 
@@ -1248,21 +1248,9 @@ func (s *Server) devicePing(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// health: GET /api/v1/health (publik) — status face service dan penyimpanan
-// foto. ?device_id= juga memperbarui last_seen perangkat (upsert, tanpa token).
+// health: GET /api/v1/health (publik, read-only) — status face service dan
+// penyimpanan foto.
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	deviceID := strings.TrimSpace(r.URL.Query().Get("device_id"))
-	if deviceID != "" {
-		now := time.Now().UTC().Format(time.RFC3339)
-		_, _ = s.db.Collection("devices").UpdateOne(r.Context(),
-			bson.M{"_id": deviceID},
-			bson.M{
-				"$set":         bson.M{"last_seen": now},
-				"$setOnInsert": bson.M{"_id": deviceID, "name": "Perangkat " + deviceID},
-			},
-			options.Update().SetUpsert(true),
-		)
-	}
 	face := s.faceHealth(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "faceVerification": face, "imageStorage": s.imageStorageHealth(r.Context())})
 }
@@ -1378,12 +1366,12 @@ func writeError(w http.ResponseWriter, status int, code, message string) {
 
 func ParseConfig() Config {
 	return Config{
-		Environment:        env("APP_ENV", "development"),
+		Environment:        strings.TrimSpace(os.Getenv("APP_ENV")),
 		FaceServiceURL:     env("FACE_SERVICE_URL", "http://127.0.0.1:8000"),
 		FaceServiceToken:   os.Getenv("FACE_SERVICE_TOKEN"),
 		DeviceToken:        os.Getenv("DEVICE_TOKEN"),
-		SimThreshold:       envFloat("FACE_SIM_THRESHOLD", 0.20),
-		PoseThreshold:      envFloat("FACE_POSE_THRESHOLD", 0.20),
+		SimThreshold:       envFloat("FACE_SIM_THRESHOLD", 0.45),
+		PoseThreshold:      envFloat("FACE_POSE_THRESHOLD", 0.30),
 		ScanMinMatchFrames: int(envFloat("SCAN_MIN_MATCH_FRAMES", 2)),
 		FaceServiceTimeout: time.Duration(envFloat("FACE_SERVICE_TIMEOUT_SECONDS", 15) * float64(time.Second)),
 		ImageStorage: storage.Config{

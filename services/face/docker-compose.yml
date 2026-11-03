@@ -5,19 +5,25 @@ services:
       dockerfile: Dockerfile
     container_name: face-recognition-api
     ports:
-      - "8000:8000"
+      - "${FACE_SERVICE_BIND_ADDRESS:-127.0.0.1}:8000:8000"
     environment:
+      - FACE_SERVICE_TOKEN=${FACE_SERVICE_TOKEN:?FACE_SERVICE_TOKEN is required}
       # Model paths (relative to /app inside container)
       - DET_MODEL_PATH=models/face_detection/scrfd_10g.onnx
       - REC_MODEL_PATH=models/face_recognition/arcface_r50_fp16.onnx
       # Thresholds
-      - CONF_THRESHOLD=0.35
-      - IOU_THRESHOLD=0.45
+      - CONF_THRESHOLD=0.50
+      - IOU_THRESHOLD=0.40
       - SIM_THRESHOLD=0.45
     restart: unless-stopped
+    volumes:
+      - face-model-cache:/app/models
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      test: ["CMD", "python", "-c", "import os,urllib.request; r=urllib.request.Request('http://localhost:8000/health',headers={'Authorization':'Bearer '+os.environ['FACE_SERVICE_TOKEN']}); urllib.request.urlopen(r,timeout=5)"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 60s
+
+volumes:
+  face-model-cache:

@@ -2,7 +2,7 @@
 
 > Status: **berlaku** — sesuai `internal/store/database.go`, `internal/store/users.go`,
 > dan query di `internal/api/server.go`, `face.go`, `images.go`, `admin.go`.
-> Terakhir diselaraskan: 26 Oktober 2026.
+> Terakhir diselaraskan: 28 Oktober 2026.
 > Versi lama proyek memakai SQLite; semua rujukan ke `DATABASE_PATH`,
 > `data/attendance.db`, tabel `user_classes`, atau `date(…, 'localtime')`
 > sudah **tidak berlaku**.
@@ -11,27 +11,23 @@
 
 | Variabel | Default | Keterangan |
 | --- | --- | --- |
-| `MONGODB_URI` | `mongodb://10.100.1.11:27017` | URI driver resmi `go.mongodb.org/mongo-driver` v1.17 |
-| `MONGODB_DATABASE` | `attendance` | nama database; dibuat otomatis saat pertama ditulisi (`.env` pengembangan saat ini: `methics`) |
+| `MONGODB_URI` | — | wajib dikonfigurasi; URI driver resmi `go.mongodb.org/mongo-driver` v1.17 |
+| `MONGODB_DATABASE` | `attendance` | nama database; dibuat otomatis saat pertama ditulisi |
 
 `store.Open` melakukan, berurutan:
 
 1. `mongo.Connect` lalu `Ping` dengan batas waktu **8 detik**. Gagal → server
-   berhenti dengan `initialize database (<uri>): …`.
+   berhenti dengan pesan galat yang tidak mencetak URI koneksi.
 2. `migrate` — membuat index (idempoten; aman dijalankan setiap startup).
 3. `seed` — upsert kelas dan perangkat memakai `$setOnInsert`, sehingga
    **tidak menimpa** data yang sudah diubah (lihat §5). Mahasiswa tidak
    di-seed.
 
 Nilai `MONGODB_*` dibaca dari `.env` dengan `godotenv.Overload` (menimpa
-environment). Baris log `connected to MongoDB at … (database: …)` menunjukkan
-database yang benar-benar dipakai.
+environment). Baris log `connected to MongoDB (database: …)` menunjukkan nama
+database yang dipakai tanpa mencatat URI atau kredensialnya.
 
 Koneksi ditutup saat shutdown (`Database.Close`, batas 5 detik).
-
-> Catatan: URI dicetak ke log saat startup (`connected to MongoDB at …`).
-> Bila URI memuat password (lihat panduan hardening di `README.md`), password
-> itu ikut tercetak di log. Pertimbangkan menyamarkannya sebelum produksi.
 
 ## 2. Koleksi
 
@@ -78,7 +74,7 @@ satu kelas. Bila kelak dipakai, pastikan kedua sumber tetap sinkron.
 | `username` | string | **unik** (index biasa, case-sensitive); pencarian login memakai regex case-insensitive |
 | `display_name` | string | nama tampilan |
 | `role` | string | `administrator` atau `dosen` |
-| `password_hash` | binary | bcrypt (`DefaultCost`); password minimal 12 karakter di production, 4 di development (`store.MinPasswordLength`) |
+| `password_hash` | binary | bcrypt (`DefaultCost`); password minimal 12 karakter (`store.MinPasswordLength`) |
 | `active` | bool | `false` → login & session ditolak |
 | `class_ids` | array string | kelas yang ditugaskan (untuk dosen); diisi dari centang kelas di form `/akses` |
 | `created_at` | date | UTC |
@@ -87,16 +83,16 @@ Penugasan kelas dosen disimpan langsung di `users.class_ids` (pengganti tabel
 `user_classes` di versi SQLite). Middleware membacanya ulang di **setiap
 request**, jadi perubahan langsung berlaku tanpa logout.
 
-Akun dibuat oleh tiga jalur: bootstrap `.env` (`BOOTSTRAP_ADMIN_*`,
-`BOOTSTRAP_LECTURER_*`; `BOOTSTRAP_RESET_PASSWORDS=true` menyetel ulang
-keduanya setiap start di development), form "Buat akun dosen" di `/akses`
+Akun dibuat oleh dua jalur: bootstrap `.env` (`BOOTSTRAP_ADMIN_*`,
+`BOOTSTRAP_LECTURER_*`; bootstrap hanya membuat akun dan tidak mereset
+kredensial akun yang sudah ada), form "Buat akun dosen" di `/akses`
 (`CreateLecturer`: username huruf kecil, role `dosen`), dan `POST /api/v1/staff`.
 Menghapus akun dosen di `/akses` menghapus dokumennya; sesi dosen itu
 langsung tidak berlaku.
 
 > Karena index unik `username` bersifat case-sensitive sedangkan login
 > case-insensitive, `Admin` dan `admin` bisa tersimpan sebagai dua dokumen
-> lewat `CreateUser`. `EnsureUser`, `ResetUser`, dan `CreateLecturer` (form
+> lewat `CreateUser`. `EnsureUser` dan `CreateLecturer` (form
 > `/akses`) sudah memeriksa username tanpa membedakan huruf besar/kecil.
 
 ### `devices`
@@ -105,14 +101,14 @@ langsung tidak berlaku.
 | --- | --- | --- |
 | `_id` | string | ID perangkat, mis. `ESP32-GED-A1` |
 | `name` | string | nama tampilan |
-| `last_seen` | string | RFC3339 UTC; diisi oleh scan, ping, atau health |
+| `last_seen` | string | RFC3339 UTC; diperbarui oleh scan atau heartbeat terautentikasi |
 
 Status "online" di dashboard = ada perangkat dengan `last_seen` < **2 menit**
 yang lalu (diambil satu dokumen dengan `last_seen` terbaru).
 
-> Endpoint `/api/v1/devices/ping` dan `/api/v1/health?device_id=…` melakukan
-> **upsert**: ID perangkat yang belum ada akan dibuat otomatis dengan nama
-> `Perangkat <id>`. Lihat `docs/devices.md` §7.
+> Endpoint heartbeat `/api/v1/devices/ping` memerlukan `DEVICE_TOKEN` dan
+> hanya memperbarui perangkat yang sudah terdaftar. `/api/v1/health` bersifat
+> read-only dan tidak mengubah `last_seen`.
 
 ### `face_templates`
 

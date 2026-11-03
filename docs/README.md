@@ -6,12 +6,12 @@ mulai dari **[HANDOFF.md](../HANDOFF.md)**, lalu kembali ke sini untuk detail.
 | Dokumen | Isi | Untuk siapa |
 | --- | --- | --- |
 | [HANDOFF.md](../HANDOFF.md) | Titik masuk: status, keputusan, risiko, langkah lanjutan | Engineer/AI yang melanjutkan pekerjaan |
-| [README.md](../README.md) | Cara menjalankan, konfigurasi, hardening, checklist production | Siapa pun yang mau menjalankan proyek |
+| [README.md](../README.md) | Build, konfigurasi production, hardening, deployment dan operasi | Operator |
 | [API.md](../API.md) | Kontrak API JSON, fragment `/partials/*`, format error, HMAC perangkat | Integrator (perangkat, klien lain) |
 | [architecture.md](architecture.md) | Komponen, alur data, batas kepercayaan, ADR, invarian | Perancang/peninjau teknis |
-| [code-guide.md](code-guide.md) | Penjelasan kode per lapisan + resep tugas umum + jebakan | Developer yang mengubah kode |
+| [code-guide.md](code-guide.md) | Penjelasan kode per lapisan dan alur request | Engineer pemelihara |
 | [database.md](database.md) | Koleksi MongoDB, index, seed, aturan waktu, operasi `mongosh`, backup | Developer & operator |
-| [devices.md](devices.md) | Firmware ESP32 + ESP32-CAM (wiring, UART, uji bertahap), ESP8266, protokol ping & scan, klien uji, troubleshooting | Pengembang perangkat |
+| [devices.md](devices.md) | Firmware absensi, commissioning perangkat, protokol ping & scan, troubleshooting | Operator perangkat |
 | [face-service.md](face-service.md) | Integrasi Go ↔ face service Python (enrollment, pencocokan, konfigurasi) dan penyimpanan foto di Garage (§8) | Pengembang backend & ML |
 | [SRS.md](SRS.md) | Kebutuhan fungsional & non-fungsional dengan status implementasi | Penyusun SRS / kebutuhan formal |
 | [diagram.excalidraw](diagram.excalidraw) | Tahapan proyek, arsitektur, alur enrollment & scan (buka di excalidraw.com atau ekstensi VS Code) | Semua |
@@ -31,32 +31,31 @@ views/                      layouts/, pages/, partials/, fragments/, login.html
 static/css|js               aset; htmx + Lucide di-vendor lokal
 devices/esp32_scanner/      firmware ESP32 utama (sensor, layar, buzzer, scan, heartbeat)
 devices/esp32cam_uart/      firmware ESP32-CAM (foto lewat UART)
-devices/esp32cam_wifi/      firmware ESP32-CAM (mode uji Wi-Fi, pengganti UART)
+devices/esp32cam_wifi/ firmware kamera Wi-Fi alternatif untuk commissioning
 services/face/              face service Python (SCRFD + ArcFace, FastAPI)
 internal/api/face.go        klien face service + pencocokan cosine di Go
 internal/api/images.go      foto wajah: unggah, otorisasi & stream, retensi
 internal/storage/s3.go      klien S3 (Garage) dengan pustaka standar
 docs/                       dokumentasi (Anda di sini)
-.env.example                templat konfigurasi lokal
+.env.example                templat konfigurasi production
 ```
 
 ## Pertanyaan umum → dokumen
 
 | Saya ingin… | Baca |
 | --- | --- |
-| menjalankan proyek pertama kali | [README.md](../README.md) §Mulai cepat |
+| membangun dan deploy aplikasi | [README.md](../README.md) §Mulai cepat |
 | menambah halaman atau endpoint | [code-guide.md](code-guide.md) §7 |
 | mengubah/menambah field data | [database.md](database.md) §8 |
 | membuat akun dosen & memilih kelasnya | halaman `/akses` ([README.md](../README.md) §Keamanan akun staf) |
 | mengubah kelas dosen yang sudah ada | [database.md](database.md) §6 (`mongosh`) |
 | menghapus mahasiswa beserta data wajahnya | [database.md](database.md) §5a |
-| mereset login admin/dosen di development | [README.md](../README.md) §Pemecahan masalah (`BOOTSTRAP_RESET_PASSWORDS`) |
 | merakit & mem-flash perangkat absensi | [devices.md](devices.md) §2 |
 | memahami protokol kamera ↔ ESP32 | [devices.md](devices.md) §3 |
-| menguji scan tanpa perangkat keras | [devices.md](devices.md) §6 (klien uji Python) |
+| commissioning firmware perangkat | [devices.md](devices.md) §2 |
 | membangun face service | [face-service.md](face-service.md) |
 | menyimpan/melihat foto wajah (Garage) | [face-service.md](face-service.md) §8, [API.md](../API.md) `GET /api/v1/images` |
-| tahu apa yang belum dikerjakan | [HANDOFF.md](../HANDOFF.md) §Batasan & §Langkah Lanjutan ([SRS.md](SRS.md) dirawat terpisah dan bisa tertinggal) |
+| tahu batasan dan risiko produksi | [HANDOFF.md](../HANDOFF.md) |
 
 ## Konvensi penulisan dokumen
 

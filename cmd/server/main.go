@@ -22,11 +22,8 @@ import (
 )
 
 func main() {
-	// .env menimpa variabel environment yang sudah ada. Terminal VS Code
-	// (python.terminal.useEnvFile) dan air (env_files) menyuntikkan isi .env
-	// saat terminal/air dibuka; tanpa Overload, nilai lama itu menang dan
-	// perubahan .env diabaikan. Bila .env tidak ada (mis. produksi), hanya
-	// environment proses yang dipakai.
+	// .env dapat digunakan untuk konfigurasi produksi; environment proses
+	// tetap menjadi sumber konfigurasi bila berkas ini tidak tersedia.
 	if err := godotenv.Overload(); err != nil && !errors.Is(err, os.ErrNotExist) {
 		log.Fatalf("load .env: %v", err)
 	} else if err == nil {
@@ -35,31 +32,34 @@ func main() {
 
 	config := api.ParseConfig()
 	if config.Environment != "production" {
-		// Pengembangan lokal boleh memakai password pendek (mis. admin/admin).
-		// Production tetap memakai minimal 12 karakter.
-		store.MinPasswordLength = 4
-		log.Printf("development mode: password staf minimal %d karakter (production: 12)", store.MinPasswordLength)
+		log.Fatal("APP_ENV harus disetel eksplisit ke production")
+	}
+	if strings.EqualFold(strings.TrimSpace(os.Getenv("BOOTSTRAP_RESET_PASSWORDS")), "true") {
+		log.Fatal("BOOTSTRAP_RESET_PASSWORDS telah dihapus; setel password akun secara manual")
 	}
 	csrfSecret := os.Getenv("CSRF_SECRET")
 	if len(csrfSecret) < 32 {
-		log.Fatal("CSRF_SECRET must contain at least 32 characters")
+		log.Fatal("CSRF_SECRET wajib berisi minimal 32 karakter")
 	}
 	if len(config.DeviceToken) < 32 {
-		log.Fatal("DEVICE_TOKEN must contain at least 32 characters")
+		log.Fatal("DEVICE_TOKEN wajib berisi minimal 32 karakter")
 	}
-	if config.Environment == "production" && len(config.FaceServiceToken) < 32 {
-		log.Fatal("FACE_SERVICE_TOKEN must contain at least 32 characters in production")
+	if len(config.FaceServiceToken) < 32 {
+		log.Fatal("FACE_SERVICE_TOKEN wajib berisi minimal 32 karakter")
 	}
 
-	mongoURI := env("MONGODB_URI", "mongodb://10.100.1.11:27017")
+	mongoURI := strings.TrimSpace(os.Getenv("MONGODB_URI"))
+	if mongoURI == "" {
+		log.Fatal("MONGODB_URI wajib diatur")
+	}
 	mongoDB := env("MONGODB_DATABASE", "attendance")
 	database, err := store.Open(mongoURI, mongoDB)
 	if err != nil {
-		log.Fatalf("initialize database (%s): %v", mongoURI, err)
+		log.Fatalf("initialize database (database: %s): %v", mongoDB, err)
 	}
 	defer database.Close()
-	log.Printf("connected to MongoDB at %s (database: %s)", mongoURI, mongoDB)
-	bootstrapStaff(database, config.Environment)
+	log.Printf("connected to MongoDB (database: %s)", mongoDB)
+	bootstrapStaff(database)
 
 	staticDir := env("STATIC_DIR", "static")
 	viewDir := env("VIEW_DIR", "views")
@@ -67,7 +67,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("load page templates: %v", err)
 	}
-	sessions := security.NewSessionManager(config.Environment == "production")
+	sessions := security.NewSessionManager(true)
 	authController := controller.NewAuth(database, sessions, web)
 	apiServer := api.New(database, config)
 	retentionCtx, stopRetention := context.WithCancel(context.Background())
@@ -94,7 +94,7 @@ func main() {
 
 	csrfHandler := csrf.Protect(
 		[]byte(csrfSecret),
-		csrf.Secure(config.Environment == "production"),
+		csrf.Secure(true),
 		csrf.Path("/"),
 		csrf.FieldName("csrf_token"),
 		csrf.RequestHeader("X-CSRF-Token"),
@@ -131,18 +131,14 @@ func main() {
 		}
 	}()
 
-	log.Printf("attendance dashboard listening on %s (%s mode)", address, config.Environment)
+	log.Printf("attendance dashboard listening on %s (production)", address)
 	if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		log.Fatal(err)
 	}
 }
 
-func bootstrapStaff(database *store.Database, environment string) {
+func bootstrapStaff(database *store.Database) {
 	ctx := context.Background()
-	if strings.EqualFold(strings.TrimSpace(os.Getenv("BOOTSTRAP_RESET_PASSWORDS")), "true") {
-		resetBootstrapStaff(ctx, database, environment)
-		return
-	}
 	adminCount, err := database.CountUsersByRole(ctx, "administrator")
 	if err != nil {
 		log.Fatalf("count administrator users: %v", err)
@@ -171,38 +167,6 @@ func bootstrapStaff(database *store.Database, environment string) {
 	}
 }
 
-// resetBootstrapStaff (BOOTSTRAP_RESET_PASSWORDS=true, hanya non-production)
-// menyetel ulang password akun BOOTSTRAP_ADMIN_* dan BOOTSTRAP_LECTURER_* di
-// setiap start, atau membuatnya bila belum ada. Akun lain tidak disentuh.
-func resetBootstrapStaff(ctx context.Context, database *store.Database, environment string) {
-	if environment == "production" {
-		log.Fatal("BOOTSTRAP_RESET_PASSWORDS tidak boleh dipakai saat APP_ENV=production")
-	}
-	accounts := []struct {
-		userKey, passKey, role string
-		classes                []string
-	}{
-		{"BOOTSTRAP_ADMIN_USERNAME", "BOOTSTRAP_ADMIN_PASSWORD", "administrator", nil},
-		{"BOOTSTRAP_LECTURER_USERNAME", "BOOTSTRAP_LECTURER_PASSWORD", "dosen", splitCSV(env("BOOTSTRAP_LECTURER_CLASSES", "IK24-A,IK24-B"))},
-	}
-	for _, account := range accounts {
-		username := strings.TrimSpace(os.Getenv(account.userKey))
-		password := os.Getenv(account.passKey)
-		if username == "" || password == "" {
-			continue
-		}
-		created, err := database.ResetUser(ctx, username, password, account.role, account.classes)
-		if err != nil {
-			log.Fatalf("reset bootstrap %s %q: %v", account.role, username, err)
-		}
-		action := "password diperbarui"
-		if created {
-			action = "dibuat"
-		}
-		log.Printf("bootstrap reset: akun %s %q %s (BOOTSTRAP_RESET_PASSWORDS=true)", account.role, username, action)
-	}
-}
-
 // setupImageStorage mengaktifkan penyimpanan foto wajah di S3 (Garage) bila
 // S3_* diisi. Garage yang tidak terjangkau saat start hanya menghasilkan
 // peringatan: absensi tetap berjalan, foto tidak tersimpan sampai pulih.
@@ -222,7 +186,7 @@ func setupImageStorage(ctx context.Context, apiServer *api.Server, config api.Co
 	if err := client.HeadBucket(checkCtx); err != nil {
 		log.Printf("image storage: PERINGATAN bucket %q di %s belum bisa diakses: %v", cfg.Bucket, cfg.Endpoint, err)
 	} else {
-		log.Printf("image storage: bucket %q di %s siap", cfg.Bucket, cfg.Endpoint)
+		log.Printf("image storage: bucket %q in %s ready", cfg.Bucket, cfg.Endpoint)
 	}
 	go apiServer.RunImageRetention(ctx, time.Hour)
 }

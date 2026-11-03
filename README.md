@@ -19,11 +19,11 @@ Untuk orientasi cepat AI/kontributor berikutnya, mulai dari
 | Backend Go + dashboard staf (login, ringkasan, mahasiswa, kelas, laporan, log, akses) | berjalan |
 | Administrasi: tambah/hapus mahasiswa, buat/hapus akun dosen | berjalan (administrator) |
 | MongoDB (index + seed kelas/perangkat otomatis) | berjalan |
-| Firmware perangkat absensi ESP32 + ESP32-CAM (UART) (`devices/esp32_scanner`, `devices/esp32cam_uart`) | ada; lolos kompilasi, **belum diuji di perangkat keras** |
-| Firmware heartbeat ESP8266 (`devices/esp8266_ping`) | ada (uji koneksi) |
+| Firmware perangkat absensi ESP32 + ESP32-CAM (UART) (`devices/esp32_scanner`, `devices/esp32cam_uart`) | tersedia; commissioning perangkat keras wajib sebelum pemasangan |
+| Firmware tambahan | alat commissioning perangkat, tidak termasuk runtime server |
 | Face service Python (`services/face`, SCRFD + ArcFace) | ada; terhubung ke Go untuk enrollment & scan ([docs/face-service.md](docs/face-service.md)) |
 | Penyimpanan foto wajah di Garage (S3) + retensi otomatis | ada, opsional (`S3_*`); tautan foto di halaman Log |
-| Test otomatis | unit test (`go test ./...`: face service, pencocokan, foto, klien S3, validasi akun dosen, render fragment); belum ada test MongoDB |
+| Operasi aplikasi | production-only |
 
 ## Dokumentasi
 
@@ -35,7 +35,7 @@ Untuk orientasi cepat AI/kontributor berikutnya, mulai dari
 | [docs/architecture.md](docs/architecture.md) | arsitektur, batas kepercayaan, ADR |
 | [docs/code-guide.md](docs/code-guide.md) | penjelasan kode per lapisan dan resep tugas umum |
 | [docs/database.md](docs/database.md) | koleksi MongoDB, index, seed, waktu, backup |
-| [docs/devices.md](docs/devices.md) | firmware ESP32 + ESP32-CAM (wiring, UART, upload, uji bertahap), ESP8266, protokol ping & scan, klien uji |
+| [docs/devices.md](docs/devices.md) | firmware absensi, commissioning perangkat, protokol ping & scan, troubleshooting |
 | [docs/face-service.md](docs/face-service.md) | integrasi face service Python dan penyimpanan foto (Garage) |
 | [docs/diagram.excalidraw](docs/diagram.excalidraw) | diagram tahapan proyek, arsitektur, alur enrollment & scan |
 | [docs/SRS.md](docs/SRS.md) | kebutuhan fungsional & non-fungsional |
@@ -55,26 +55,31 @@ internal/store/           koneksi MongoDB, index, seed, akun staf
 views/                    template html/template (layouts, pages, partials, fragments)
 static/                   CSS, JS, htmx & Lucide yang di-vendor lokal
 devices/                  firmware Arduino: esp32_scanner (perangkat absensi), esp32cam_uart (kamera),
-                          esp32cam_wifi (kamera mode uji Wi-Fi),
-                          sketch uji layar/sensor, stream kamera, dan heartbeat ESP8266
+                          firmware commissioning perangkat
 services/face/            face service Python (FastAPI: deteksi wajah + embedding ArcFace)
 docs/                     dokumentasi
 ```
 
 ## Mulai cepat
 
-Kebutuhan: **Go 1.23+** dan **MongoDB** yang dapat dijangkau (default
-`mongodb://10.100.1.11:27017`).
+Kebutuhan deployment: **Go 1.23+** untuk build, Docker Compose untuk face
+service, dan MongoDB produksi dengan autentikasi serta TLS sesuai topologi.
 
 ```powershell
-copy .env.example .env      # lalu isi CSRF_SECRET, DEVICE_TOKEN, BOOTSTRAP_ADMIN_PASSWORD, MONGODB_URI
-go mod tidy
-go run ./cmd/server
+Copy-Item .env.example .env
+# Isi semua secret wajib dan URI MongoDB produksi dalam .env.
+go mod download
+go build -trimpath -ldflags="-s -w" -o bin/methics.exe ./cmd/server
+docker compose --env-file .env -f services/face/docker-compose.yml up -d --build
+.\bin\methics.exe
 ```
 
-Buka `http://localhost:8080` dan login dengan akun bootstrap. Face service
-yang belum berjalan hanya membuat status "Verifikasi Python" offline;
-dashboard tetap bisa dipakai.
+Pastikan face service, MongoDB, dan reverse proxy TLS siap sebelum membuka
+aplikasi. Go menolak start bila `APP_ENV` bukan `production`, URI MongoDB
+belum diisi, atau secret wajib kurang dari 32 karakter. Akun administrator
+pertama dibuat dari `BOOTSTRAP_ADMIN_*`; hapus secret bootstrap setelah akun
+berhasil dibuat. Jalankan binary dari direktori yang berisi `views/` dan
+`static/`, atau atur `VIEW_DIR`/`STATIC_DIR`.
 
 Nilai acak 32+ karakter bisa dibuat dengan `openssl rand -hex 32` atau di
 PowerShell:
@@ -83,34 +88,22 @@ PowerShell:
 -join ((48..57)+(65..90)+(97..122) | Get-Random -Count 40 | % {[char]$_})
 ```
 
-`.env` dimuat otomatis saat startup (`godotenv.Overload`), baik dengan `go run`
-maupun `air`, dan **menimpa** variabel environment yang sama. Ini disengaja:
-terminal VS Code (`python.terminal.useEnvFile`) dan `air` menyuntikkan isi
-`.env` saat dibuka, sehingga tanpa Overload nilai lama akan menang. Untuk
-memakai nilai dari environment, hapus barisnya dari `.env`. Simpan `.env`
-tanpa BOM (lihat [code-guide §8](docs/code-guide.md)).
+`.env` dimuat saat startup (`godotenv.Overload`) dan menimpa environment proses
+dengan nama variabel yang sama. Jika `.env` tidak tersedia, konfigurasi harus
+diberikan melalui environment proses. Gunakan berkas tanpa BOM dan batasi
+aksesnya hanya untuk akun layanan.
 
-### Hot reload (air)
-
-```powershell
-go install github.com/air-verse/air@latest   # cukup sekali
-air
-```
-
-Konfigurasi ada di `.air.toml` (build ke `./tmp/main.exe`, memantau `.go` dan
-`.html`, memuat `.env`). Pastikan `%USERPROFILE%\go\bin` ada di `PATH`.
-Perubahan `static/css` dan `static/js` cukup di-refresh di browser karena aset
-disajikan langsung dari disk. Artefak air masuk ke `tmp/` yang di-gitignore.
-
-### Build binary
+### Build dan deployment
 
 ```powershell
 go vet ./...
-go build -o bin/methics.exe ./cmd/server
+go build -trimpath -ldflags="-s -w" -o bin/methics.exe ./cmd/server
 ```
 
 Binary membaca `views/` dan `static/` dari direktori kerja (atau dari
-`VIEW_DIR`/`STATIC_DIR`), jadi salin kedua folder bersama binary saat deploy.
+`VIEW_DIR`/`STATIC_DIR`); salin kedua folder bersama binary. Terminasi TLS,
+HSTS, pembatasan ukuran/rate di edge, serta firewall adalah tanggung jawab
+reverse proxy dan infrastruktur deployment.
 
 ## Halaman
 
@@ -132,17 +125,18 @@ dirender Go dengan `html/template`; data dimuat dan disegarkan oleh htmx dari
 
 | Variabel | Default | Keterangan |
 | --- | --- | --- |
-| `APP_ENV` | `development` | `production` mengaktifkan cookie `Secure`, mewajibkan `FACE_SERVICE_TOKEN`, dan mewajibkan token pada ping perangkat |
-| `CSRF_SECRET` | — | **wajib**, ≥ 32 karakter (semua mode) |
-| `DEVICE_TOKEN` | — | **wajib**, ≥ 32 karakter (semua mode); bearer + kunci HMAC perangkat |
-| `MONGODB_URI` | `mongodb://10.100.1.11:27017` | URI MongoDB |
+| `APP_ENV` | — | **wajib** bernilai `production`; mode lain ditolak |
+| `CSRF_SECRET` | — | **wajib**, ≥ 32 karakter; cookie CSRF selalu `Secure` |
+| `DEVICE_TOKEN` | — | **wajib**, ≥ 32 karakter; bearer + kunci HMAC perangkat |
+| `MONGODB_URI` | — | **wajib**; koneksi MongoDB produksi dengan autentikasi/TLS sesuai topologi |
 | `MONGODB_DATABASE` | `attendance` | nama database (dibuat otomatis saat pertama ditulisi) |
 | `FACE_SERVICE_URL` | `http://127.0.0.1:8000` | face service internal (`services/face/api.py`) |
 | `FACE_SIM_THRESHOLD` | `0.45` | ambang cosine similarity untuk menyatakan wajah cocok |
 | `FACE_POSE_THRESHOLD` | `0.30` | ambang kemiripan antar-foto dalam satu enrollment (1–6 pose) |
 | `SCAN_MIN_MATCH_FRAMES` | `2` | frame scan yang harus cocok dengan mahasiswa yang sama agar langsung Hadir |
 | `FACE_SERVICE_TIMEOUT_SECONDS` | `15` | batas waktu satu panggilan `/embed` atau `/register` |
-| `FACE_SERVICE_TOKEN` | kosong | bearer ke face service; ≥ 32 karakter di production |
+| `FACE_SERVICE_TOKEN` | — | **wajib**, ≥ 32 karakter, sama di Go dan Python; Python menolak request tanpa bearer valid |
+| `FACE_SERVICE_BIND_ADDRESS` | `127.0.0.1` | alamat host untuk port face service di Docker Compose; gunakan jaringan privat bila Go berada di host lain |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET` | kosong, `garage`, kosong | object storage S3 (Garage) untuk foto wajah; kosong = foto tidak disimpan |
 | `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | kosong | kunci Garage khusus bucket (bukan kunci admin) |
 | `IMAGE_RETENTION_DAYS` | `30` | masa simpan foto scan berstatus `Hadir`; `0` = tanpa batas |
@@ -150,16 +144,15 @@ dirender Go dengan `html/template`; data dimuat dan disegarkan oleh htmx dari
 | `HTTP_ADDR` | `:8080` | alamat listen |
 | `STATIC_DIR` | `static` | lokasi aset |
 | `VIEW_DIR` | `views` | lokasi template |
-| `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` | — | wajib saat belum ada administrator aktif; password ≥ 12 karakter di production, ≥ 4 di development |
+| `BOOTSTRAP_ADMIN_USERNAME`, `BOOTSTRAP_ADMIN_PASSWORD` | — | wajib saat belum ada administrator aktif; password ≥ 12 karakter |
 | `BOOTSTRAP_LECTURER_USERNAME`, `BOOTSTRAP_LECTURER_PASSWORD` | — | opsional; akun dosen dibuat bila username belum ada (akun dosen lain dibuat di `/akses`) |
 | `BOOTSTRAP_LECTURER_CLASSES` | `IK24-A,IK24-B` | kelas untuk akun dosen bootstrap |
-| `BOOTSTRAP_RESET_PASSWORDS` | `false` | hanya development: `true` = setiap start, password akun bootstrap admin & dosen disetel ulang ke nilai `.env` (dibuat bila belum ada) |
 
-Server menolak start bila `CSRF_SECRET`/`DEVICE_TOKEN` kosong atau kurang dari
-32 karakter, bila MongoDB tidak dapat dihubungi dalam 8 detik, atau bila
-belum ada administrator dan variabel bootstrap admin tidak diisi, atau bila
-`BOOTSTRAP_RESET_PASSWORDS=true` dipakai dengan `APP_ENV=production`. Hapus
-secret bootstrap setelah akun terbentuk. Templat lengkap ada di
+Server menolak start bila `APP_ENV` tidak persis `production`, secret wajib
+kurang dari 32 karakter, `MONGODB_URI` kosong, MongoDB tidak dapat dihubungi
+dalam 8 detik, atau belum ada administrator dan kredensial bootstrap tidak
+diisi. `BOOTSTRAP_RESET_PASSWORDS=true` tidak didukung. Hapus secret bootstrap
+setelah akun terbentuk. Templat lengkap ada di
 [.env.example](.env.example).
 
 Ambang deteksi (`CONF_THRESHOLD`) dan pilihan model diatur di face service
@@ -171,8 +164,8 @@ pencocokan dilakukan oleh Go.
 - Tidak ada kredensial demo bawaan; akun staf dibuat dari `BOOTSTRAP_*`.
 - Password disimpan dengan bcrypt; login dibatasi 10 percobaan per IP per
   5 menit.
-- Session cookie HttpOnly/SameSite (`itbjh_session`, 8 jam, idle 30 menit)
-  dan CSRF token (`itbjh_csrf`).
+- Session cookie HttpOnly/SameSite/Secure (`itbjh_session`, 8 jam, idle
+  30 menit) dan CSRF token (`itbjh_csrf`).
 - Session store dan login limiter masih **in-memory**: restart mengakhiri
   semua sesi dan deployment multi-instance perlu store bersama.
 - Mahasiswa adalah record roster/subjek absensi tanpa akun aplikasi.
@@ -181,8 +174,7 @@ pencocokan dilakukan oleh Go.
   dihapus dari sana. Mengubah kelas dosen, reset password, dan menonaktifkan
   akun belum ada di UI; untuk sementara gunakan `mongosh` (contoh di
   [docs/database.md](docs/database.md) §6).
-- Password minimal 12 karakter di production dan 4 karakter di development
-  (agar akun uji seperti `admin`/`admin` bisa dipakai lokal).
+- Password minimal 12 karakter untuk semua akun.
 
 ## Perangkat
 
@@ -194,10 +186,9 @@ mengirim semuanya ke `POST /api/v1/scans` (token + HMAC + jam NTP). Wajah yang
 cocok di ≥ 2 frame langsung tercatat **Hadir** di kelas mahasiswa itu; wajah
 yang tidak cocok dengan siapa pun tampil **"Wajah tidak Terdaftar"** di layar
 TFT. Tiap 15 detik ESP32 juga mengirim heartbeat ke
-`POST /api/v1/devices/ping`. Wiring, konfigurasi, urutan upload, dan uji
-bertahap ada di [docs/devices.md](docs/devices.md) §2. Untuk uji tanpa kabel
-antar-board, kamera bisa disambungkan lewat Wi-Fi (`devices/esp32cam_wifi`,
-`CAM_LINK_WIFI 1`; [docs/devices.md](docs/devices.md) §2.6).
+`POST /api/v1/devices/ping`. Wiring, konfigurasi, urutan upload, dan
+commissioning ada di [docs/devices.md](docs/devices.md) §2. Kamera Wi-Fi
+alternatif hanya untuk commissioning; pemasangan permanen memakai UART.
 
 Wi-Fi dan `DEVICE_TOKEN` untuk ESP32 disimpan di
 `devices/esp32_scanner/secrets.h` (salin dari `secrets.example.h`; di-gitignore).
@@ -216,23 +207,13 @@ menyimpan embedding ke MongoDB dan mencocokkannya dengan cosine similarity
 terhadap semua pose. Jadi dashboard dan perangkat ESP32 cukup memakai satu
 API, yaitu Go.
 
-Gunakan Python **3.10–3.12** (`services/face/environment.yml` memakai 3.10).
-Python 3.15 belum didukung: `numpy<2.3` dan `onnxruntime` belum punya wheel
-untuknya, sehingga `pip install` gagal membangun `numpy` dari source.
-
-```powershell
-# Terminal 1 — face service (dari services/face; lihat services/face/README.md)
-conda activate face_rec            # atau venv Python 3.10–3.12
-pip install -r requirements.txt    # sekali
-python main.py --host 127.0.0.1 --port 8000   # atau: uvicorn api:app --host 127.0.0.1 --port 8000
-
-# Terminal 2 — backend Go
-air
-```
+Face service dijalankan dalam container production dari
+`services/face/Dockerfile` melalui perintah Compose di atas. Container
+memerlukan `FACE_SERVICE_TOKEN` yang sama dengan backend Go, mengikat port ke
+loopback secara default, dan hanya menyediakan API internal bertoken.
 
 Detail alur, konfigurasi, dan catatan keamanan ada di
-[docs/face-service.md](docs/face-service.md). Face service belum memiliki
-autentikasi, jadi jalankan hanya di `127.0.0.1`/jaringan internal.
+[docs/face-service.md](docs/face-service.md).
 
 ## Penyimpanan foto (Garage)
 
@@ -282,10 +263,8 @@ peninjauan manusia untuk hasil tidak pasti.
 
 ## Panduan Hardening MongoDB Menuju Production
 
-Pada tahap pengembangan lokal (seperti di VMware lokal), MongoDB dapat berjalan
-tanpa password (`authorization` nonaktif). Namun, **sebelum sistem
-dipublikasikan ke production**, langkah-langkah hardening berikut wajib
-diterapkan:
+MongoDB produksi wajib menggunakan autentikasi dan konfigurasi jaringan yang
+dibatasi. Terapkan langkah-langkah hardening berikut sebelum layanan digunakan:
 
 1. **Buat User Otentikasi Khusus Aplikasi:**
    Buka terminal di server MongoDB (`mongosh`), pindah ke database `admin`, dan buat akun aplikasi dengan izin `readWrite` hanya pada database aplikasi (nilai `MONGODB_DATABASE`; contoh di bawah memakai `attendance`):
@@ -319,14 +298,14 @@ diterapkan:
      sudo ufw allow from <IP_SERVER_GO> to any port 27017 proto tcp
      ```
 
-4. **Perbarui Connection String di `.env` Aplikasi:**
+4. **Perbarui Connection String di environment aplikasi:**
    Sesuaikan URI di environment file server backend:
    ```env
-   MONGODB_URI=mongodb://methics_app:GantiDenganPasswordSangatKuatDanPanjang123!@10.100.1.11:27017/attendance?authSource=admin
+   MONGODB_URI=mongodb://<user>:<password>@<host>:27017/attendance?authSource=admin
    MONGODB_DATABASE=attendance
    ```
-   Catatan: URI dicetak ke log saat startup, jadi password ikut tercetak.
-   Batasi akses ke log server atau samarkan URI sebelum produksi.
+   URI koneksi tidak dicatat ke log aplikasi. Batasi akses environment file
+   dan log server hanya untuk operator berwenang.
 
 5. **Restart Service MongoDB:**
    ```bash
@@ -345,7 +324,7 @@ diterapkan:
 - [ ] Zona waktu server = zona waktu kampus (batas "hari ini" mengikuti jam server).
 - [ ] Face service berjalan di jaringan internal dengan `FACE_SERVICE_TOKEN`.
 - [ ] Kredensial perangkat tidak ada di Git; `DEVICE_TOKEN` diganti bila pernah bocor.
-- [ ] Ping/health tidak membuat perangkat baru secara otomatis (lihat [docs/devices.md](docs/devices.md) §7).
+- [ ] Heartbeat memakai `DEVICE_TOKEN`; `/api/v1/health` hanya read-only.
 - [ ] Session store bersama bila lebih dari satu instance.
 - [ ] Bila foto disimpan: bucket Garage privat, kunci khusus bucket (bukan `admin_token`), port RPC 3901 dibatasi, retensi disetujui institusi.
 
@@ -368,12 +347,11 @@ diterapkan:
 | Log: `image storage: PERINGATAN bucket … belum bisa diakses` | Garage tidak terjangkau dari server Go, bucket belum dibuat, atau `S3_ACCESS_KEY_ID`/`S3_SECRET_ACCESS_KEY` salah |
 | Kolom Foto di Log berisi `-` | penyimpanan foto nonaktif, unggah gagal (lihat log `image storage: upload … gagal`), scan dibuat sebelum `S3_*` diisi/server di-restart, atau foto sudah lewat retensi |
 | `image storage: S3 endpoint, bucket, access key, dan secret wajib diisi` | `S3_*` terisi sebagian; lengkapi semua atau kosongkan semua |
-| Perubahan `.env` tidak berpengaruh (mis. log masih `database: attendance`) | versi lama memakai `godotenv.Load`, yang kalah dari nilai lama di environment terminal; kini `Overload`. Hentikan `air` lalu jalankan lagi, dan cek baris log `.env dimuat` |
-| Login gagal padahal `BOOTSTRAP_ADMIN_PASSWORD` sudah diubah | akun admin lama masih ada (bootstrap hanya berjalan bila belum ada administrator). Di development set `BOOTSTRAP_RESET_PASSWORDS=true` lalu restart, atau hapus akunnya dengan `mongosh` |
+| Perubahan `.env` tidak berpengaruh | pastikan binary direstart dan `.env` berada di working directory; nilai di `.env` menimpa environment proses |
+| Login gagal setelah `BOOTSTRAP_ADMIN_PASSWORD` diubah | bootstrap hanya membuat administrator jika belum ada; lakukan rotasi kredensial akun aktif melalui prosedur operator database yang disetujui |
 | Mahasiswa contoh lama (`IK24001`–`IK24005`) masih tampil | sisa seed versi lama di MongoDB; seed tidak membuatnya lagi, jadi hapus sekali lewat tombol hapus di halaman Mahasiswa |
 | `NIM harus 9 digit angka` | NIM wajib 9 digit angka, mis. `241011001` |
-| Python: `ModuleNotFoundError: onnxruntime` / `numpy` gagal dibangun | `uvicorn` dijalankan dari environment tanpa paket, atau Python 3.15; pakai conda/venv Python 3.10–3.12 lalu `pip install -r requirements.txt` |
-| `air` tidak dikenali | tambahkan `%USERPROFILE%\go\bin` ke `PATH` |
+| Face service gagal start | periksa log container, `FACE_SERVICE_TOKEN` minimal 32 karakter, jaringan Hugging Face, dan izin direktori cache model |
 
 ## Lisensi
 

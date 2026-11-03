@@ -12,6 +12,7 @@ from typing import List, Optional
 class Settings:
     # Hugging Face Model Hub Settings
     hf_repo_id: str = os.getenv("HF_REPO_ID", "AkihikoSaburo/methics")
+    face_service_token: str = os.getenv("FACE_SERVICE_TOKEN", "")
     models_dir: str = os.getenv("MODELS_DIR", "models")
     models_config_file: str = os.getenv("MODELS_CONFIG_FILE", "models_config.json")
 

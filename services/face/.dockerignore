@@ -33,8 +33,7 @@ debug_output/
 *.avi
 *.log
 
-# Development & debug files
+# Debug files
 debug_*.py
-environment.yml
 README.md
 .DS_Store

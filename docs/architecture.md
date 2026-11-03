@@ -18,8 +18,8 @@ kedua.
 - **Layanan pendukung**: face service Python (internal, tidak diekspos) dan
   object storage S3 **Garage** untuk foto wajah (opsional, privat).
 - **Klien**: browser staf (admin/dosen) dan perangkat absensi ESP32 + ESP32-CAM
-  (scan wajah + heartbeat, `devices/esp32_scanner` & `devices/esp32cam_uart`);
-  ESP8266 hanya untuk uji heartbeat.
+  (scan wajah + heartbeat, `devices/esp32_scanner` & `devices/esp32cam_uart`).
+  Firmware tambahan hanya untuk commissioning perangkat.
 
 Konsekuensi yang disengaja: halaman dan API berbagi satu sumber query/validasi
 (`internal/api`), sehingga aturan role tidak bisa berbeda antara tampilan dan
@@ -38,7 +38,7 @@ API.
 | Tampilan | `views/` | `layouts/base.html`, `pages/*`, `fragments/*` |
 | Aset statis | `static/` | `css/`, `js/app.js`, `js/lib/ui.js`, vendor lokal |
 | Face service | `services/face/` | Python (stateless): `/health`, `/embed` (1 foto) dan `/register` (1–6 foto) → embedding ArcFace 512-d; dipanggil oleh `internal/api/face.go` |
-| Firmware | `devices/` | `esp32_scanner` (ESP32 utama → `/api/v1/scans`, `/devices/ping`), `esp32cam_uart` (kamera via UART), `esp32cam_wifi` (kamera mode uji Wi-Fi), sketch uji |
+| Firmware | `devices/` | `esp32_scanner` (perangkat absensi → `/api/v1/scans`, `/devices/ping`), `esp32cam_uart` (kamera via UART); firmware lain hanya untuk commissioning |
 
 Vendor frontend di-host lokal dan versi-terpin: htmx 2.0.11, Lucide 1.59.0,
 dengan `htmx.config.allowEval = false`.
@@ -76,8 +76,8 @@ ESP32 ──POST /api/v1/scans (1–6 frame, bearer DEVICE_TOKEN + HMAC + timest
 ### Perangkat (ESP8266) — heartbeat
 
 ```text
-ESP8266 ──POST /api/v1/devices/ping (bearer DEVICE_TOKEN, wajib hanya di production)──► Go
-                                                                                       └── MongoDB: devices.last_seen (upsert)
+ESP8266 ──POST /api/v1/devices/ping (bearer DEVICE_TOKEN wajib)──────────► Go
+                                                                           └── MongoDB: devices.last_seen (perangkat terdaftar)
 ```
 
 Dashboard menganggap perangkat online bila `last_seen` < 2 menit.
@@ -112,7 +112,7 @@ Browser tidak pernah mengakses Garage langsung; bucket tetap privat.
 
 ### API staf (integrasi)
 
-`/api/v1/*` tetap tersedia sebagai API JSON untuk integrasi, pengujian, dan
+`/api/v1/*` tetap tersedia sebagai API JSON untuk integrasi dan
 perangkat. Sejak migrasi htmx, halaman **tidak** lagi membaca
 `/api/v1`; sumber data halaman adalah `/partials/*`. Detail payload dan skema
 HMAC ada di `API.md`.
@@ -190,8 +190,8 @@ hanya Go yang menjadi API publik untuk dashboard maupun ESP32.
 
 - **Konteks**: versi awal memakai SQLite berkas lokal (`data/attendance.db`)
   yang dibagi Go dan Python.
-- **Keputusan**: pindah ke MongoDB di server terpisah (default
-  `mongodb://10.100.1.11:27017`, database `attendance`).
+- **Keputusan**: pindah ke MongoDB di server terpisah. `MONGODB_URI` wajib
+  dikonfigurasi tanpa URI default; nama database default `attendance`.
 - **Dasar** (disimpulkan dari kode — koreksi bila alasan sebenarnya berbeda):
   Go dan face service Python dapat berjalan di mesin berbeda dan mengakses
   data yang sama lewat jaringan, tanpa berbagi berkas SQLite.
@@ -205,7 +205,7 @@ hanya Go yang menjadi API publik untuk dashboard maupun ESP32.
 1. **Internet → Go (browser)**: session + CSRF; role & kelas diambil dari DB
    tiap request, bukan dari klien.
 2. **Internet → Go (perangkat)**: scan memakai device token + HMAC +
-   timestamp. Heartbeat ping hanya memakai token (dan hanya di production);
+   timestamp. Heartbeat ping wajib memakai token;
    `GET /api/v1/health` publik.
 3. **Go → Face service**: jaringan internal, bearer `FACE_SERVICE_TOKEN`;
    port Python tidak diekspos.
@@ -225,7 +225,7 @@ Acuan payload/skema ada di `API.md`.
 | Staf tulis | `POST /api/v1/students`, `POST /api/v1/students/{nim}/face-template` | session + CSRF (admin) |
 | Perangkat — scan | `POST /api/v1/scans` | device token + HMAC + timestamp |
 | Staf baca foto | `GET /api/v1/images/{key...}` | session (dosen: hanya kelasnya) |
-| Perangkat — heartbeat | `GET\|POST /api/v1/devices/ping` | device token (hanya production) |
+| Perangkat — heartbeat | `GET\|POST /api/v1/devices/ping` | device token (wajib) |
 | Publik | `GET /api/v1/health` | — |
 | Fragment (staf) | `GET/POST /partials/*` | session (+ CSRF untuk POST) |
 
@@ -239,17 +239,16 @@ Variabel lingkungan (dari `cmd/server/main.go`):
 | Variabel | Keterangan |
 | --- | --- |
 | `HTTP_ADDR` | alamat listen (default `:8080`) |
-| `MONGODB_URI` | URI koneksi MongoDB (default `mongodb://10.100.1.11:27017`) |
+| `MONGODB_URI` | URI koneksi MongoDB (wajib; tidak ada URI default) |
 | `MONGODB_DATABASE` | nama database MongoDB (default `attendance`) |
 | `STATIC_DIR`, `VIEW_DIR` | lokasi aset & template |
-| `APP_ENV` | `development` / `production` (cookie Secure, token face service & ping wajib) |
-| `CSRF_SECRET` | wajib ≥32 karakter (semua mode) |
-| `DEVICE_TOKEN` | wajib ≥32 karakter (semua mode) |
-| `FACE_SERVICE_URL`, `FACE_SERVICE_TOKEN` | koneksi ke Python (token ≥32 di production) |
+| `APP_ENV` | wajib `production`; nilai lain ditolak |
+| `CSRF_SECRET` | wajib ≥32 karakter |
+| `DEVICE_TOKEN` | wajib ≥32 karakter |
+| `FACE_SERVICE_URL`, `FACE_SERVICE_TOKEN` | koneksi privat ke Python (token wajib ≥32 karakter dan diverifikasi Python) |
 | `S3_ENDPOINT`, `S3_REGION`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | penyimpanan foto di Garage (kosong semua = nonaktif) |
 | `IMAGE_RETENTION_DAYS`, `IMAGE_REVIEW_RETENTION_DAYS` | retensi foto scan (default 30 / 90 hari) |
 | `BOOTSTRAP_ADMIN_*`, `BOOTSTRAP_LECTURER_*` | pembuatan akun awal |
-| `BOOTSTRAP_RESET_PASSWORDS` | development saja: setel ulang password akun bootstrap setiap start |
 
 `FACE_SIM_THRESHOLD` (default `0.45`, ambang cosine similarity) dan
 `FACE_SERVICE_TIMEOUT_SECONDS` (default `15`) dibaca oleh Go;
@@ -257,9 +256,8 @@ Variabel lingkungan (dari `cmd/server/main.go`):
 batas "hari ini" pada ringkasan dan laporan.
 
 `.env` dimuat dengan `godotenv.Overload`, jadi nilainya menimpa environment
-proses (lihat `code-guide.md` §8). Di production tanpa berkas `.env`, hanya
-environment proses yang dipakai. Password staf minimal 12 karakter di
-production dan 4 di development.
+proses (lihat `code-guide.md` §8). Bila `.env` tidak ada, konfigurasi wajib
+disediakan lewat environment proses. Password staf minimal 12 karakter.
 
 Catatan hardening: HSTS **belum** dipasang (lihat §10). Header yang sudah ada:
 `X-Content-Type-Options: nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy:
@@ -294,7 +292,8 @@ Dicatat agar tidak diusulkan ulang tanpa alasan baru yang konkret.
 
 ## 10. Risiko terbuka & TODO backend
 
-Ini adalah pekerjaan backend yang masih outstanding (lihat juga `HANDOFF.md` §Batasan dan Risiko):
+Catatan deployment dan risiko yang masih perlu ditangani (lihat juga
+[HANDOFF.md](../HANDOFF.md)):
 
 1. **Session & rate limit in-memory** → belum aman untuk multi-instance; butuh
    store bersama (Redis/DB) bila di-scale.
@@ -309,17 +308,19 @@ Ini adalah pekerjaan backend yang masih outstanding (lihat juga `HANDOFF.md` §B
    / aksi administrator, atau enkripsi backup. Retensi foto scan otomatis dan
    hapus mahasiswa ikut menghapus data biometriknya.
 7. **Hardening HTTP**: HSTS dan audit logging belum ada.
-8. **Port RPC Garage (3901)** terbuka di semua interface pada konfigurasi
-   pengembangan; batasi dengan firewall atau ganti `rpc_secret`.
-9. **Ping/health melakukan upsert perangkat** tanpa token (ping di
-   non-production, health di semua mode) → ID perangkat baru bisa dibuat
-   dari luar.
-10. **Kredensial di firmware ESP8266** (Wi-Fi + `DEVICE_TOKEN`) tertulis di
-   sketch; pindahkan ke `secrets.h` dan rotasi token.
-11. **Face service tanpa autentikasi** (CORS `*`, token Go belum diperiksa)
-    → wajib dijalankan di `127.0.0.1`/jaringan internal.
+8. **Kredensial lama di firmware ESP8266** (Wi-Fi + `DEVICE_TOKEN`) pernah
+   masuk riwayat Git; rotasi token dan password Wi-Fi yang terdampak, dan
+   jangan gunakan sketch tersebut sebagai firmware produksi.
+9. **Face service kini mewajibkan `FACE_SERVICE_TOKEN`** di semua endpoint;
+   pertahankan port Python pada loopback/jaringan privat dan batasi firewall.
+10. **Konfigurasi hanya production**: startup menolak `APP_ENV` lain,
+    secret yang kurang dari 32 karakter, dan `MONGODB_URI` kosong.
+11. **Commissioning kamera Wi-Fi dan kamera stream** memakai HTTP tanpa TLS
+    atau autentikasi penuh; gunakan hanya pada jaringan commissioning
+    terisolasi, bukan jaringan produksi.
 12. **Sisa mahasiswa contoh dari seed lama** (`IK24001`–`IK24005`) tidak
-    dihapus otomatis; seed kini hanya kelas dan perangkat (lihat `database.md` §5).
+    dihapus otomatis; seed kini hanya kelas dan perangkat (lihat
+    [database.md](database.md)).
 
 ## 11. Berkas acuan
 

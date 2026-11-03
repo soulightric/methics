@@ -7,6 +7,11 @@
 >
 > Penanda status: `[TERSEDIA]` sudah ada di kode · `[SEBAGIAN]` sebagian ·
 > `[BELUM]` belum ada · `TBD` perlu keputusan.
+>
+> Aplikasi hanya menerima konfigurasi `APP_ENV=production`. Status tersebut
+> tidak menyatakan bahwa deployment sudah tersertifikasi atau siap beroperasi:
+> commissioning perangkat, TLS, kebijakan biometrik, backup, dan kebutuhan
+> institusi tetap harus dipenuhi.
 
 ## 0. Kendali Dokumen
 
@@ -23,11 +28,12 @@ Riwayat revisi:
 
 | Versi | Tanggal | Perubahan | Oleh |
 | --- | --- | --- | --- |
+| 0.7 | 2026-10-28 | Konfigurasi production-only; token face service dan heartbeat wajib; health read-only; dokumentasi diselaraskan; suite test otomatis dihapus dan status pemeliharaan diperbarui | ISI: |
 | 0.1 | ISI: | Kerangka awal dari kode yang ada | ISI: |
 | 0.6 | 2026-10-26 | Hapus mahasiswa (FR-STU-10), buat & hapus akun dosen (FR-AUTH-09, FR-AUTHZ-06 sebagian); matriks dihitung ulang | ISI: |
 | 0.5 | 2026-10-26 | Firmware perangkat ESP32 + ESP32-CAM (UART); IF-HW-01/04 diperbarui, tambah IF-HW-05 | ISI: |
 | 0.4 | 2026-10-26 | Penyimpanan foto wajah di object storage S3 (Garage) dengan retensi; tambah FR-BIO-11, IF-SW-06, NFR-REL-07; bug cakupan log (FR-LOG-01) diperbaiki; status privasi & test diperbarui; matriks dihitung ulang | ISI: |
-| 0.3 | 2026-10-26 | Face service Python (YOLO-FaceV2 + ArcFace) terhubung ke Go; penyimpanan & pencocokan embedding di Go; status biometrik diperbarui; tambah FR-BIO-10 | ISI: |
+| 0.3 | 2026-10-26 | Face service Python (SCRFD + ArcFace) terhubung ke Go; penyimpanan & pencocokan embedding di Go; status biometrik diperbarui; tambah FR-BIO-10 | ISI: |
 | 0.2 | 2026-10-21 | Selaras dengan MongoDB; tambah log pemindaian (FR-LOG), heartbeat perangkat (FR-DEV-16); status biometrik diturunkan ke `[SEBAGIAN]` karena face service belum ada di repo; matriks dihitung ulang | ISI: |
 
 ## 1. Pendahuluan
@@ -124,12 +130,12 @@ diekspos ke jaringan luar.
 
 ### 2.4 Lingkungan operasi
 
-- **Server:** `ISI:` OS & spesifikasi (dev saat ini Windows; produksi TBD). Zona waktu server menentukan batas "hari ini".
-- **Basis data:** MongoDB (default `mongodb://10.100.1.11:27017`, database `attendance`). `ISI:` versi & topologi produksi (single node / replica set).
-- **Perangkat:** ESP32 utama (HC-SR04, TFT, buzzer, Wi-Fi) + ESP32-CAM (UART atau mode uji Wi-Fi `esp32cam_wifi`) untuk scan multi-frame stream dan heartbeat (firmware ada, belum diuji di perangkat keras); ESP8266 untuk uji heartbeat. `ISI:` jumlah perangkat & lokasi.
+- **Server:** `ISI:` OS & spesifikasi produksi. Aplikasi hanya menerima konfigurasi production. Zona waktu server menentukan batas "hari ini".
+- **Basis data:** MongoDB; `MONGODB_URI` wajib dikonfigurasi, database `attendance` secara default. `ISI:` versi & topologi produksi (single node / replica set).
+- **Perangkat:** ESP32 utama (HC-SR04, TFT, buzzer, Wi-Fi) + ESP32-CAM via UART untuk scan multi-frame dan heartbeat (commissioning fisik belum dinyatakan selesai); firmware ESP32-CAM Wi-Fi dan ESP8266 hanya alat commissioning. `ISI:` jumlah perangkat & lokasi.
 - **Jaringan:** `ISI:` LAN kampus / VPN / TLS reverse proxy.
 - **Object storage:** Garage (S3-compatible), mis. `http://10.100.1.11:3900`, bucket `methics-faces`; opsional.
-- **Layanan wajah:** Python 3.10 + FastAPI + ONNX Runtime (YOLO-FaceV2, ArcFace R50), model dari Hugging Face `AkihikoSaburo/methics` (`services/face/`).
+- **Layanan wajah:** Python + FastAPI + ONNX Runtime (SCRFD, ArcFace R50), model dari Hugging Face `AkihikoSaburo/methics` (`services/face/`); endpoint memerlukan `FACE_SERVICE_TOKEN`.
 
 ### 2.5 Batasan desain
 
@@ -241,7 +247,7 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 | --- | --- | --- | --- |
 | FR-DEV-01 | Perangkat mengautentikasi dengan token + tanda tangan HMAC + timestamp | W | `[TERSEDIA]` |
 | FR-DEV-02 | Request dengan timestamp kedaluwarsa ditolak | W | `[TERSEDIA]` |
-| FR-DEV-03 | Hanya perangkat terdaftar yang diterima | W | `[SEBAGIAN]` (scan memeriksa `devices`, tetapi ping/health dapat mendaftarkan ID baru otomatis) |
+| FR-DEV-03 | Hanya perangkat terdaftar yang diterima | W | `[TERSEDIA]` (scan dan heartbeat memeriksa perangkat; health read-only) |
 | FR-DEV-04 | Kelas pada scan harus valid | W | `[TERSEDIA]` |
 | FR-DEV-05 | Capture diverifikasi ke template wajah melalui layanan wajah | W | `[TERSEDIA]` |
 | FR-DEV-06 | Frame scan divalidasi (1–6 frame, per frame ≤ 8 MB, total ≤ 16 MB; frame bukan gambar/rusak ditolak/dilewati) | W | `[TERSEDIA]` |
@@ -313,7 +319,7 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 
 | ID | Antarmuka | Detail | Status |
 | --- | --- | --- | --- |
-| IF-SW-01 | Backend ↔ Layanan wajah | HTTP internal; `GET /health`, `POST /embed` (scan), `POST /register` (enrollment 1–6 pose) → embedding 512-d | `[TERSEDIA]` (layanan belum memeriksa token) |
+| IF-SW-01 | Backend ↔ Layanan wajah | HTTP internal bertoken; `GET /health`, `POST /embed` (scan), `POST /register` (enrollment 1–6 pose) → embedding 512-d; endpoint manajemen model hanya melalui backend Go | `[TERSEDIA]` |
 | IF-SW-02 | Backend ↔ Basis data | MongoDB (driver Go resmi v1.17) | `[TERSEDIA]` |
 | IF-SW-05 | Penyimpanan template wajah | Go menulis `face_templates`; layanan wajah stateless | `[TERSEDIA]` |
 | IF-SW-03 | Browser ↔ Backend | HTML/htmx + JSON `/api/v1` | `[TERSEDIA]` |
@@ -326,7 +332,7 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 | --- | --- | --- |
 | IF-HW-01 | Perangkat kamera mengirim gambar multi-frame via HTTP multipart ke backend (`POST /api/v1/scans`) | `[SEBAGIAN]` (firmware `esp32_scanner` + `esp32cam_uart` ada dan lolos kompilasi; belum diuji di perangkat keras) |
 | IF-HW-04 | Perangkat mengirim heartbeat HTTP berkala (< 2 menit) | `[TERSEDIA]` (ESP32 `esp32_scanner`, ESP8266) |
-| IF-HW-05 | ESP32 utama ↔ ESP32-CAM melalui UART (`ON`/`CAP`/`OFF`, JPEG + CRC32) atau mode uji Wi-Fi (`esp32cam_wifi`) | `[SEBAGIAN]` (firmware ada; belum diuji di perangkat keras) |
+| IF-HW-05 | ESP32 utama ↔ ESP32-CAM melalui UART (`ON`/`CAP`/`OFF`, JPEG + CRC32); Wi-Fi hanya commissioning | `[SEBAGIAN]` (firmware ada; commissioning perangkat keras belum dituntaskan) |
 | IF-HW-02 | `ISI:` spesifikasi minimum kamera/resolusi & pencahayaan | TBD |
 | IF-HW-03 | `ISI:` kebutuhan daya & jaringan di lokasi | TBD |
 
@@ -356,7 +362,7 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 | ID | Kebutuhan | Status |
 | --- | --- | --- |
 | NFR-SEC-01 | CSP `script-src 'self'`, tanpa inline script | `[TERSEDIA]` |
-| NFR-SEC-02 | Cookie sesi HttpOnly, SameSite=Lax, Secure di produksi | `[TERSEDIA]` |
+| NFR-SEC-02 | Cookie sesi HttpOnly, SameSite=Lax, Secure (aplikasi hanya berjalan di production) | `[TERSEDIA]` |
 | NFR-SEC-03 | Perlindungan CSRF untuk semua aksi tulis staf | `[TERSEDIA]` |
 | NFR-SEC-04 | Secret wajib ≥ 32 karakter; server menolak start bila kurang | `[TERSEDIA]` |
 | NFR-SEC-05 | Perbandingan token memakai waktu konstan | `[TERSEDIA]` |
@@ -366,7 +372,7 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 | NFR-SEC-09 | Pemindaian dependensi / pembaruan berkala | `ISI:` |
 | NFR-SEC-10 | Penanganan panic tanpa membocorkan detail internal | `[TERSEDIA]` |
 | NFR-SEC-11 | Kredensial (Wi-Fi, token) tidak tertulis di kode firmware/repo | `[BELUM]` |
-| NFR-SEC-12 | Endpoint perangkat tidak membuat perangkat baru tanpa autentikasi | `[BELUM]` |
+| NFR-SEC-12 | Heartbeat perangkat memerlukan token dan health endpoint tidak mengubah perangkat | `[TERSEDIA]` |
 
 ### 5.3 Privasi & kepatuhan
 
@@ -397,16 +403,16 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 | --- | --- | --- |
 | NFR-MAINT-01 | Satu sumber query/validasi untuk halaman dan API | `[TERSEDIA]` |
 | NFR-MAINT-02 | Dokumentasi arsitektur, kode, API, handoff | `[TERSEDIA]` |
-| NFR-MAINT-03 | Test otomatis (unit/integrasi) | `[SEBAGIAN]` (unit test face service mock, pencocokan & konsistensi pose, multi-frame scan & konsensus, S3 SigV4, validasi admin, render fragment; belum ada test MongoDB) |
+| NFR-MAINT-03 | Test otomatis (unit/integrasi) | `[BELUM]` (suite otomatis dihapus dari repository; verifikasi rilis memerlukan build, pemeriksaan statis, dan commissioning terkontrol) |
 | NFR-MAINT-04 | Logging terstruktur & observability | `[BELUM]` |
 | NFR-MAINT-05 | Migrasi skema berversi | `[BELUM]` |
-| NFR-MAINT-06 | CI (lint, build, test) | `[BELUM]` |
+| NFR-MAINT-06 | CI (lint dan build) | `[BELUM]` |
 
 ### 5.6 Portabilitas
 
 | ID | Kebutuhan | Status |
 | --- | --- | --- |
-| NFR-PORT-01 | Dapat berjalan di Windows (dev) dan Linux (produksi) | `[SEBAGIAN]` |
+| NFR-PORT-01 | Dapat berjalan pada platform server produksi yang disetujui | `ISI:` |
 | NFR-PORT-02 | Basis data produksi MongoDB dengan autentikasi & TLS | `[SEBAGIAN]` (koneksi ada; hardening manual sesuai README) |
 | NFR-PORT-03 | Konfigurasi via environment, tanpa mengubah kode | `[TERSEDIA]` |
 
@@ -427,7 +433,7 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 | CN-03 | Ambang pencocokan belum dikalibrasi | Risiko false accept/reject |
 | CN-04 | Session & rate limit in-memory | Tidak aman untuk multi-instance |
 | CN-05 | Satu token perangkat global | Bocor satu = bocor semua |
-| CN-07 | Face service tanpa autentikasi | Harus berjalan di jaringan internal |
+| CN-07 | Face service hanya dapat diakses melalui bearer token dan jaringan internal | Token wajib disamakan dengan konfigurasi backend Go |
 | CN-08 | Foto wajah tersimpan di object storage | Bucket privat, kunci khusus bucket, port RPC Garage dibatasi |
 | CN-06 | `ISI:` kepatuhan lain (akreditasi, audit internal) | ISI: |
 
@@ -441,11 +447,11 @@ Kolom **Pri** = prioritas (W wajib, S sebaiknya, B bila memungkinkan).
 | Kelas | 3 | 2 | 0 | 1 | 0 |
 | Mahasiswa & enrollment | 12 | 10 | 0 | 2 | 0 |
 | Laporan | 9 | 5 | 0 | 3 | 1 |
-| Perangkat & absensi otomatis | 16 | 10 | 1 | 5 | 0 |
+| Perangkat & absensi otomatis | 16 | 11 | 0 | 5 | 0 |
 | Pengenalan wajah | 11 | 6 | 1 | 4 | 0 |
 | API integrasi | 7 | 4 | 2 | 1 | 0 |
 | Log pemindaian | 6 | 5 | 0 | 1 | 0 |
-| **Total** | **89** | **61** | **6** | **20** | **2** |
+| **Total** | **89** | **62** | **5** | **20** | **2** |
 
 > Angka di atas dihitung dari tabel Bagian 3 pada dokumen ini (revisi 0.7,
 > 29 Oktober 2026); perbarui bila kebutuhan berubah.

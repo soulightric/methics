@@ -2,7 +2,7 @@
 FastAPI Face Recognition API
 =============================
 REST API endpoints for SCRFD face detection and ArcFace face recognition.
-Integrated with Hugging Face Hub for real-time model cataloging & on-demand downloads.
+Protected by a shared bearer token and accessed through the Go application.
 Designed as a microservice backend for an attendance system.
 
 Endpoints:
@@ -17,14 +17,14 @@ Endpoints:
 
 import time
 import base64
+import hmac
 import logging
 from contextlib import asynccontextmanager
 from typing import List, Optional, Dict, Any
 
 import cv2
 import numpy as np
-from fastapi import FastAPI, File, UploadFile, HTTPException, Query, status
-from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Depends, FastAPI, File, Header, UploadFile, HTTPException, Query, status
 
 from pydantic import BaseModel, Field
 
@@ -34,6 +34,25 @@ logger = logging.getLogger(__name__)
 
 pipeline: Optional[FacePipeline] = None
 start_time: float = 0.0
+
+
+def require_face_service_token(authorization: Optional[str] = Header(default=None)) -> None:
+    scheme, separator, supplied = (authorization or "").partition(" ")
+    try:
+        valid = (
+            bool(separator)
+            and scheme.lower() == "bearer"
+            and bool(settings.face_service_token)
+            and hmac.compare_digest(supplied.encode("utf-8"), settings.face_service_token.encode("utf-8"))
+        )
+    except UnicodeEncodeError:
+        valid = False
+    if not valid:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Valid bearer token required.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -47,6 +66,8 @@ async def lifespan(app: FastAPI):
         format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     )
     logger.info("Initializing Face Recognition Pipeline models...")
+    if len(settings.face_service_token) < 32:
+        raise RuntimeError("FACE_SERVICE_TOKEN must contain at least 32 characters.")
     start_time = time.time()
     try:
         pipeline = get_pipeline(
@@ -75,14 +96,10 @@ app = FastAPI(
     ),
     version="1.1.0",
     lifespan=lifespan,
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    dependencies=[Depends(require_face_service_token)],
+    docs_url=None,
+    redoc_url=None,
+    openapi_url=None,
 )
 
 

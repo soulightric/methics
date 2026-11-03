@@ -1,8 +1,7 @@
 # Perangkat (ESP32 / ESP32-CAM / ESP8266)
 
-> Status: **[SEBAGIAN]**. Firmware perangkat absensi sudah ada dan lolos
-> kompilasi (core ESP32 3.0.7) serta uji format request terhadap backend,
-> tetapi **belum diuji di perangkat keras**. Terakhir diperbarui 28 Oktober 2026
+> Status: **[SEBAGIAN]**. Firmware perangkat absensi tersedia; commissioning
+> fisik masih perlu dituntaskan sebelum pemasangan. Terakhir diperbarui 28 Oktober 2026
 > (scan berbasis stream: kamera menyala saat ada orang, ±2 detik multi-frame).
 
 ## 1. Ringkasan
@@ -11,15 +10,15 @@
 | --- | --- | --- |
 | `devices/esp32_scanner/` | ESP32 Dev Module | **perangkat absensi**: ultrasonik → kamera ON → ±2 detik frame → `POST /api/v1/scans` (multi-frame) → hasil di layar + buzzer; heartbeat |
 | `devices/esp32cam_uart/` | AI Thinker ESP32-CAM | **kamera** untuk `esp32_scanner`; mati saat idle, menyala + stream atas perintah UART, tanpa Wi-Fi |
-| `devices/esp32cam_wifi/` | AI Thinker ESP32-CAM | **kamera mode uji Wi-Fi**: pengganti kabel UART saat kamera belum bisa dikabel/dicatu bersama ESP32 utama (§2.6) |
-| `devices/algorithmics_engine_ultrasonic_buzzer/` | ESP32 | sketch uji layar + ultrasonik + buzzer (tanpa jaringan); dasar `esp32_scanner` |
-| `devices/esp32cam_stream/` | ESP32-CAM | sketch uji kamera lewat web (stream, `/capture`) untuk mengatur arah/fokus; **jangan dipakai di produksi** |
-| `devices/esp8266_ping/` | ESP8266 | uji koneksi heartbeat (sebelum ESP32 tersedia) |
+| `devices/esp32cam_wifi/` | AI Thinker ESP32-CAM | kamera Wi-Fi alternatif untuk commissioning saja (§2.6); jangan digunakan untuk pemasangan permanen |
+| `devices/algorithmics_engine_ultrasonic_buzzer/` | ESP32 | firmware commissioning layar, ultrasonik, dan buzzer |
+| `devices/esp32cam_stream/` | ESP32-CAM | firmware commissioning arah/fokus kamera; **jangan dipakai di jaringan produksi** |
+| `devices/esp8266_ping/` | ESP8266 | firmware commissioning heartbeat |
 
 | Fungsi | Endpoint | Auth |
 | --- | --- | --- |
-| Heartbeat / status online | `GET` atau `POST /api/v1/devices/ping` | bearer `DEVICE_TOKEN` **hanya di production** |
-| Cek kesehatan backend | `GET /api/v1/health[?device_id=…]` | tidak ada |
+| Heartbeat / status online | `GET` atau `POST /api/v1/devices/ping` | bearer `DEVICE_TOKEN` wajib |
+| Cek kesehatan backend | `GET /api/v1/health` | tidak ada; read-only |
 | Kirim scan wajah | `POST /api/v1/scans` | bearer `DEVICE_TOKEN` + HMAC-SHA256 + timestamp |
 
 Ketiganya dipasang di router luar (`cmd/server/main.go`), sehingga **tidak**
@@ -161,11 +160,11 @@ perintah `status`; firmware berhenti mengambil frame bila heap tersisa
 4. **ESP32 utama**: lewat kabel USB-nya sendiri, buka `devices/esp32_scanner`,
    buat `secrets.h`, board *ESP32 Dev Module*, upload, Serial Monitor 115200.
 
-### 2.5 Uji bertahap
+### 2.5 Commissioning bertahap
 
 Ketik di Serial Monitor ESP32 utama (akhiri dengan newline):
 
-| Perintah | Menguji | Hasil yang diharapkan |
+| Perintah | Pemeriksaan commissioning | Hasil yang diharapkan |
 | --- | --- | --- |
 | `status` | Wi-Fi, jam, kamera, memori | `WiFi=OK … jam=… (sinkron) kamera=OK` |
 | `cam` | kabel UART | `[Cam] PONG` |
@@ -178,15 +177,15 @@ Ketik di Serial Monitor ESP32 utama (akhiri dengan newline):
 diisi, kelasnya harus ada; kalau tidak, scan ditolak `403 unknown_device` /
 `400 unknown_class`.
 
-Urutan disarankan: `cam` → `camon`/`camoff` → `ping` → enroll wajahmu di
-halaman Mahasiswa (6 pose) → `scan` → cek halaman Log (status, skor, foto
-bila Garage aktif) → uji dengan sensor ultrasonik → uji dengan orang yang
-belum di-enroll (harus "Wajah tidak Terdaftar"). Terminal Go menulis log
+Urutan disarankan: `cam` → `camon`/`camoff` → `ping` → enrollment akun
+mahasiswa commissioning → `scan` → cek halaman Log (status, skor, foto
+bila Garage aktif) → cek sensor ultrasonik → verifikasi wajah tidak terdaftar
+ditolak. Terminal Go menulis log
 `scan ESP32-GED-A1: Hadir (hadir) frame=4 wajah=… cocok=… skor=…`.
 
-### 2.6 Mode uji: kamera lewat Wi-Fi (tanpa kabel antar-board)
+### 2.6 Commissioning kamera lewat Wi-Fi (tanpa kabel antar-board)
 
-Dipakai bila ESP32-CAM belum bisa dicatu dan dikabel bersama ESP32 utama
+Alat commissioning ini dapat dipakai bila ESP32-CAM belum bisa dicatu dan dikabel bersama ESP32 utama
 (mis. belum ada kabel/catu 5 V terpisah). ESP32-CAM tetap terpasang di
 **ESP32-CAM-MB** dengan USB-nya sendiri, lalu tersambung ke Wi-Fi yang sama
 dengan ESP32 utama. **Tidak ada kabel apa pun** di antara kedua board.
@@ -229,7 +228,7 @@ Semua endpoint wajib header `X-Cam-Token: <CAM_TOKEN>` (salah → `401`,
 layar "Token kamera salah"). Kamera tetap mati sendiri setelah 15 s tanpa
 permintaan.
 
-**Batasan mode uji:** jalur kamera memakai HTTP biasa di LAN (token terkirim
+**Batasan commissioning:** jalur kamera memakai HTTP biasa di LAN (token terkirim
 tanpa enkripsi) dan bergantung pada kualitas Wi-Fi; latensi per frame
 ±100–300 ms. Untuk pemasangan permanen kembali ke kabel UART
 (`CAM_LINK_WIFI 0` + `esp32cam_uart`) dengan catu 5 V bersama dan GND
@@ -260,7 +259,7 @@ lainnya. Bila kabel panjang/berisik dan CRC sering gagal, turunkan baud di
 **kedua** sketch (mis. 230400). Frame lebih besar dari 24 KB diulang dengan
 kualitas JPEG 18; bila masih terlalu besar, kamera membalas `ERR too_big`.
 
-## 4. Firmware heartbeat ESP8266 (uji koneksi)
+## 4. Firmware commissioning heartbeat ESP8266
 
 Berkas: `devices/esp8266_ping/esp8266_ping.ino`. Mengirim `POST` ke
 `SERVER_URL` setiap `PING_INTERVAL_MS` (15 s) dengan header
@@ -288,13 +287,11 @@ ter-commit** (commit `9af21ce`), sehingga nilainya ada di riwayat Git:
 ID perangkat dibaca berurutan dari: field form `device_id` → query
 `?device_id=` → header `X-Device-Id` → **default `ESP32-GED-A1`**.
 
-| Mode | Token |
-| --- | --- |
-| `APP_ENV=production` | wajib `Authorization: Bearer <DEVICE_TOKEN>`; salah → `401 invalid_token` |
-| selain itu | **tidak diperiksa** (memudahkan uji coba di LAN) |
+Bearer `DEVICE_TOKEN` wajib pada setiap request; token salah → `401 invalid_token`.
 
-Efek: upsert `devices` — `last_seen` di-set ke sekarang (RFC3339 UTC); bila ID
-belum ada, dokumen baru dibuat dengan nama `Perangkat <id>`.
+Efek: memperbarui `last_seen` (RFC3339 UTC) pada perangkat yang sudah
+terdaftar. ID yang tidak terdaftar menghasilkan `403 unknown_device`; ping
+tidak membuat dokumen perangkat.
 
 Respons `200`:
 
@@ -307,13 +304,16 @@ Respons `200`:
 }
 ```
 
-Uji manual:
+Pemeriksaan heartbeat manual:
 
 ```bash
 curl -X POST http://localhost:8080/api/v1/devices/ping \
   -H "Authorization: Bearer $DEVICE_TOKEN" \
   -d device_id=ESP32-GED-A1
 ```
+
+Kirimkan bearer `DEVICE_TOKEN` yang valid pada request. Perangkat target harus
+sudah terdaftar di MongoDB.
 
 ## 6. Protokol scan HTTP
 
@@ -367,46 +367,11 @@ lebih kecil dari `framesTotal` karena Go berhenti memproses begitu
 Karena timestamp dicek ±2 menit, perangkat **wajib** menyinkronkan jam lewat
 NTP (`configTime(...)` di ESP32) sebelum mengirim scan.
 
-### Klien uji (Python)
-
-Berguna untuk menguji backend tanpa perangkat keras:
-
-```python
-# scan_client.py — python scan_client.py frame1.jpg frame2.jpg [... maks 6]
-import hashlib, hmac, os, sys
-from datetime import datetime, timezone
-import requests  # pip install requests
-
-BASE = os.environ.get("BASE_URL", "http://localhost:8080")
-TOKEN = os.environ["DEVICE_TOKEN"]
-device_id, class_id, liveness = "ESP32-GED-A1", "", "false"   # class_id "" = kelas otomatis
-
-frames = [open(path, "rb").read() for path in sys.argv[1:]]
-now = datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
-frames_hash = hashlib.sha256(b"".join(frames)).hexdigest()
-message = "\n".join([now, device_id, class_id, now, liveness, frames_hash])
-signature = hmac.new(TOKEN.encode(), message.encode(), hashlib.sha256).hexdigest()
-
-response = requests.post(
-    f"{BASE}/api/v1/scans",
-    headers={
-        "Authorization": f"Bearer {TOKEN}",
-        "X-Device-Timestamp": now,
-        "X-Device-Signature": signature,
-    },
-    data={"device_id": device_id, "class_id": class_id, "captured_at": now, "liveness_passed": liveness},
-    files=[("image", (f"frame-{i + 1}.jpg", data, "image/jpeg")) for i, data in enumerate(frames)],
-    timeout=15,
-)
-print(response.status_code, response.text)
-```
-
-Kirim 2 foto wajahmu (yang sudah di-enroll) → `"result":"hadir"`; kirim foto
-orang lain → `"result":"tidak_terdaftar"`. Scan baru berhasil dicatat bila
-face service aktif; bila tidak, backend membalas `502 face_service_error` dan
-**tidak** menyimpan event. Bila penyimpanan foto (`S3_*`) aktif, **satu**
-frame bukti (frame dengan skor terbaik) disimpan ke Garage dan bisa dibuka
-dari kolom **Foto** di halaman Log.
+Commissioning scan dilakukan dengan perangkat absensi ESP32 production
+sesuai prosedur di §2.5. Scan hanya dicatat bila face service aktif; bila
+tidak, backend membalas `502 face_service_error`. Bila penyimpanan foto
+(`S3_*`) aktif, frame bukti terbaik disimpan ke Garage dan ditautkan pada
+halaman Log.
 
 ### Implementasi di firmware
 
@@ -415,21 +380,16 @@ atas semua frame dan HMAC-SHA256 lewat mbedTLS bawaan core ESP32
 (`mbedtls_md_starts/update/finish`, `mbedtls_md_hmac`), `X-Device-Timestamp` =
 `captured_at` = waktu NTP setelah frame terakhir diterima, dan body multipart
 ditulis bertahap ke `WiFiClient` (frame tidak disalin dua kali di RAM).
-Format ini (termasuk perhitungan `Content-Length`) diuji terhadap
-`readScanFrames` dan `validScanSignature` backend. Koneksi masih HTTP biasa; untuk server di belakang TLS ganti ke
+Format ini (termasuk perhitungan `Content-Length`) harus sama dengan parser
+dan validator backend. Koneksi masih HTTP biasa; untuk server di belakang TLS ganti ke
 `WiFiClientSecure`.
 
 ## 7. Catatan keamanan
 
 1. **Satu `DEVICE_TOKEN` untuk semua perangkat.** Bocor satu perangkat berarti
    semua perangkat bisa ditiru. Rencana: secret per perangkat + rotasi.
-2. **Ping tanpa token di mode non-production** dan **health dengan
-   `?device_id=` tanpa token di semua mode** dapat menandai perangkat online
-   dan **membuat dokumen `devices` baru** untuk ID apa pun. Perangkat yang
-   terbentuk dengan cara ini lolos pengecekan "perangkat terdaftar" pada
-   `/api/v1/scans` (scan tetap butuh token + HMAC yang valid). Sebelum
-   produksi, pertimbangkan: ping dan health tidak melakukan upsert, hanya
-   memperbarui perangkat yang sudah terdaftar.
+2. **Heartbeat kini wajib menggunakan `DEVICE_TOKEN` di semua deployment.**
+   `GET /api/v1/health` bersifat read-only dan tidak mengubah `last_seen`.
 3. **Belum ada nonce anti-replay.** Request scan yang sama bisa diputar ulang
    dalam jendela 2 menit.
 4. **"Hadir" dari beberapa frame bukan anti-spoof.** Konsensus ≥ 2 frame
@@ -441,8 +401,9 @@ Format ini (termasuk perhitungan `Content-Length`) diuji terhadap
 5. Firmware memakai HTTP biasa. Token terkirim tanpa enkripsi; di produksi
    gunakan TLS atau jaringan perangkat yang terisolasi.
 6. `esp32cam_stream` membuka stream dan `/capture` **tanpa autentikasi** ke
-   seluruh jaringan; pakai hanya untuk menyetel kamera. `esp32cam_uart` tidak
-   memakai Wi-Fi sama sekali.
+   seluruh jaringan; hanya gunakan saat commissioning pada jaringan terisolasi
+   dan jangan hubungkan ke jaringan produksi. `esp32cam_uart` tidak memakai
+   Wi-Fi sama sekali.
 
 ## 8. Pemecahan masalah
 
@@ -458,16 +419,16 @@ Format ini (termasuk perhitungan `Content-Length`) diuji terhadap
 | Wajah terdaftar tetapi "Wajah tidak Terdaftar" | enrollment dengan foto yang jauh berbeda dari kondisi alat (cahaya, sudut kamera). Enroll ulang dengan foto dari kamera alat, atau aktifkan `USE_FLASH`; cek skor di halaman Log |
 | "Wajah tidak terdeteksi" padahal ada orang | wajah keluar frame (terlalu dekat < 15 cm), gelap, atau kamera menghadap salah; atur arah kamera dengan `esp32cam_stream` |
 | Kamera "tidak merespons" setelah `ON` | catu 5 V kurang (kamera menyedot arus saat init); gunakan adaptor ≥ 2 A |
-| ESP32 + layar mati saat 5V kamera disambung ke 5V ESP32 | brownout: USB laptop (±500 mA) tidak kuat untuk ESP32 + TFT + kamera. Beri kamera catu 5V 2A sendiri (GND tetap disatukan), atau pakai mode uji Wi-Fi (§2.6) |
+| ESP32 + layar mati saat 5V kamera disambung ke 5V ESP32 | brownout: USB laptop (±500 mA) tidak kuat untuk ESP32 + TFT + kamera. Beri kamera catu 5V 2A sendiri (GND tetap disatukan); mode Wi-Fi §2.6 hanya untuk commissioning terisolasi |
 | Mode Wi-Fi: `[Cam] methics-cam.local tidak ditemukan` | mDNS diblokir jaringan; isi `CAM_HOST` dengan IP kamera dari Serial Monitor kamera |
 | Mode Wi-Fi: "Token kamera salah" | `CAM_TOKEN` di `secrets.h` ESP32 utama ≠ `CAM_TOKEN` di `secrets.h` kamera |
 | Mode Wi-Fi: compile error `tambahkan #define CAM_TOKEN` | `secrets.h` ESP32 utama belum berisi `CAM_TOKEN` (lihat §2.6 langkah 3) |
 | Mode Wi-Fi: kamera restart / `Brownout detector was triggered` (log kamera) | port USB laptop lemah untuk kamera + Wi-Fi; colok MB ke charger HP 5V 2A |
 | Serial: `Gagal terhubung ke server. Kode error: -1` (ESP8266) | IP/port salah, server tidak jalan, atau Windows Firewall memblokir port 8080 |
-| HTTP `401 invalid_token` | `APP_ENV=production` dan token perangkat ≠ `DEVICE_TOKEN` |
+| HTTP `401 invalid_token` | token perangkat ≠ `DEVICE_TOKEN` |
 | Dashboard tetap "offline" | interval ping > 2 menit, atau jam server bergeser |
 | Scan `401 invalid_signature` | jam perangkat tidak sinkron, `class_id`/`captured_at` berbeda dari yang ditandatangani, atau hash tidak dihitung atas **semua** frame berurutan |
 | Scan `400 stale_capture` | `captured_at` lebih dari 5 menit dari jam server |
-| Scan `403 unknown_device` | `device_id` belum ada di koleksi `devices` |
+| Heartbeat/scan `403 unknown_device` | `device_id` belum terdaftar di koleksi `devices` |
 | Scan `502 face_service_error` | face service mati / `FACE_SERVICE_URL` salah |
 | Kolom Foto di Log berisi `-` | penyimpanan foto nonaktif (`S3_*` kosong), Garage tidak terjangkau (lihat log `image storage: …`), scan dibuat sebelum `S3_*` diisi, atau foto sudah lewat masa retensi |

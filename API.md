@@ -22,13 +22,13 @@ Python bersifat internal di belakang Go (kontraknya di
 | API staf | `DELETE /api/v1/students/{nim}`, `GET\|POST /api/v1/staff`, `DELETE /api/v1/staff/{id}` | session administrator + CSRF | JSON |
 | API staf | `GET /api/v1/images/{key...}` | session staf (dosen: hanya kelasnya) | gambar |
 | Perangkat | `POST /api/v1/scans` | bearer `DEVICE_TOKEN` + HMAC + timestamp | JSON |
-| Perangkat | `GET\|POST /api/v1/devices/ping` | bearer `DEVICE_TOKEN` (hanya production) | JSON |
+| Perangkat | `GET\|POST /api/v1/devices/ping` | bearer `DEVICE_TOKEN` | JSON |
 | Publik | `GET /api/v1/health` | — | JSON |
 | Aset | `GET /static/*` | — | file |
 
 Halaman server-rendered **tidak** membaca `/api/v1`; halaman memuat datanya
-dari `/partials/*`. Endpoint `/api/v1` adalah API JSON untuk integrasi,
-pengujian, dan perangkat. Keduanya memakai query & validasi yang sama di
+dari `/partials/*`. Endpoint `/api/v1` adalah API JSON untuk integrasi dan
+perangkat. Keduanya memakai query & validasi yang sama di
 `internal/api/server.go`, jadi datanya konsisten.
 
 ## 2. Autentikasi
@@ -41,7 +41,7 @@ pengujian, dan perangkat. Keduanya memakai query & validasi yang sama di
 - Rate limit login: **10 percobaan per IP per 5 menit**; lebih dari itu
   `429` + header `Retry-After: 300`.
 - Session cookie `itbjh_session`: HttpOnly, SameSite=Lax, umur 8 jam, idle
-  30 menit, `Secure` bila `APP_ENV=production`. Disimpan **in-memory**.
+  30 menit, selalu `Secure`. Disimpan **in-memory**.
 - CSRF (gorilla/csrf, cookie `itbjh_csrf`) berlaku untuk semua method tidak
   aman di jalur staf, termasuk `POST`/`DELETE /api/v1/*` staf. Kirim lewat field form
   `csrf_token` atau header `X-CSRF-Token`. Token tersedia di
@@ -83,7 +83,7 @@ Semua error dari `/api/v1/*` berbentuk:
 | 409 | `face_already_enrolled` | wajah pada foto enrollment sudah terdaftar atas NIM lain |
 | 400 | `invalid_image` | bukan multipart, field `image` hilang, kosong, atau > 8 MiB |
 | 401 | `invalid_device` | bearer token perangkat salah (scan) |
-| 401 | `invalid_token` | bearer token perangkat salah (ping, production) |
+| 401 | `invalid_token` | bearer token perangkat salah (ping) |
 | 401 | `invalid_signature` | HMAC salah atau `X-Device-Timestamp` > ±2 menit |
 | 400 | `stale_capture` | `captured_at` bukan RFC3339 atau > ±5 menit |
 | 400 | `invalid_liveness` | `liveness_passed` bukan `true`/`false` |
@@ -114,9 +114,10 @@ Semua error dari `/api/v1/*` berbentuk:
 dalam 3 detik.
 
 `faceVerification.online` = face service menjawab `GET /health` dalam
-3 detik dengan `200` dan `model_loaded: true`. Bila tidak terjangkau:
-`{"online": false, "provider": "Python face service"}`. Opsional `?device_id=<id>` memperbarui `devices.last_seen`
-(upsert, **tanpa token** — lihat catatan keamanan di `docs/devices.md` §7).
+3 detik dengan `200` dan `model_loaded: true`; Go mengautentikasi request
+internal tersebut dengan `FACE_SERVICE_TOKEN`. Bila tidak terjangkau:
+`{"online": false, "provider": "Python face service"}`. Endpoint health
+bersifat read-only dan tidak mengubah status perangkat.
 
 ### Manajemen model wajah — administrator + CSRF
 
@@ -243,7 +244,7 @@ setelah restart.
 - `GET` → `{"staff":[{"id","username","displayName","role","active","classIds","createdAt"}]}` (tanpa hash password).
 - `POST` membuat **akun dosen**: JSON `{"username":"rina.wibowo","displayName":"Dr. Rina Wibowo","password":"…","classIds":["IK24-A"]}`.
   Username disimpan huruf kecil (`^[a-z0-9._-]{3,32}$`), password ≥ 12
-  karakter di production (≥ 4 di development), minimal satu kelas yang ada.
+  karakter, minimal satu kelas yang ada.
   Respons `201`. Error: `400 invalid_input`, `409 username_taken`.
 - `DELETE` menghapus **akun dosen** saja (`403 not_lecturer` untuk administrator,
   `404 user_not_found`). Sesi dosen itu langsung berakhir karena
@@ -386,13 +387,14 @@ Penting: `liveness_passed` adalah klaim perangkat yang ditandatangani, bukan
 deteksi biologis. HMAC melindungi integritas pesan, bukan membuktikan bahwa
 wajah di gambar adalah orang hidup. Belum ada nonce anti-replay.
 
-Contoh klien uji: [docs/devices.md](docs/devices.md) §6. Firmware perangkat yang memakai kontrak ini: `devices/esp32_scanner/` (lihat `docs/devices.md` §2).
+Firmware perangkat yang memakai kontrak ini: `devices/esp32_scanner/` (lihat `docs/devices.md` §2). Perangkat commissioning didokumentasikan terpisah dan tidak termasuk runtime server.
 
 ### `GET|POST /api/v1/devices/ping` — perangkat
 
 Heartbeat untuk status "Terhubung". ID dibaca dari form `device_id`, query
 `device_id`, atau header `X-Device-Id` (default `ESP32-GED-A1`). Token
-bearer hanya diperiksa saat `APP_ENV=production`. Upsert `devices`.
+`DEVICE_TOKEN` wajib. Perangkat harus sudah terdaftar; heartbeat memperbarui
+`last_seen` tanpa membuat perangkat baru.
 
 ```json
 { "status": "ok", "device_id": "ESP32-GED-A1", "last_seen": "2026-10-21T00:15:00Z", "message": "Perangkat berhasil terhubung dan status aktif." }
