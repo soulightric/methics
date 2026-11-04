@@ -262,6 +262,13 @@ wajahnya belum terdaftar atas NIM lain. Go menyimpan semua embedding 512-d ke
 satu dokumen `face_templates` sesuai urutan unggahan (enrollment ulang
 mengganti semua pose lama).
 
+Enrollment bersifat all-or-nothing: bila satu request foto gagal, template
+MongoDB tidak diperbarui. Face service hanya menghasilkan embedding; Go yang
+menyimpan template. Respons fragment menampilkan toast dan pesan inline, serta
+indikator selama unggahan/pemrosesan. Jika koneksi terputus atau server
+mengembalikan error tanpa fragment, UI meminta operator memuat ulang roster
+untuk memeriksa apakah template aktif sebelum mencoba ulang.
+
 ```bash
 curl -b cookie.txt -H "X-CSRF-Token: <token>" \
   -F images=@depan.jpg -F images=@kiri.jpg -F images=@kanan.jpg \
@@ -418,7 +425,7 @@ Filter `class` dari dosen yang bukan kelasnya menghasilkan data kosong.
 | `GET /partials/laporan` | rekap hari ini, komposisi status, kehadiran per kelas, 50 scan terbaru | staf | `load, every 15s` |
 | `GET /partials/mahasiswa?q=&class=` | tabel roster (+ ringkasan via `hx-swap-oob`) | staf | `load, every 15s`, ketik, ganti filter, event `roster-changed` |
 | `GET /partials/mahasiswa/form` | form dialog pendaftaran | administrator | sekali saat halaman dimuat |
-| `POST /partials/mahasiswa/students` | tambah mahasiswa (form-urlencoded `name`, `nim`, `classId`) | administrator | — |
+| `POST /partials/mahasiswa/students` | tambah mahasiswa (form-urlencoded `name`, `nim`, `classId`); dialog tetap terbuka sampai roster memuat mahasiswa baru | administrator | — |
 | `POST /partials/mahasiswa/{nim}/face-template` | enrollment / enrollment ulang wajah (multipart `images`, 1–6 foto, dikirim otomatis saat file dipilih; `q`/`class` ikut lewat `hx-include` agar filter tetap) | administrator | — |
 | `DELETE /partials/mahasiswa/{nim}` | hapus mahasiswa + data wajah, foto, riwayat scan (konfirmasi `hx-confirm`; `q`/`class` lewat `hx-include`) → roster | administrator | — |
 | `GET /partials/akses/staff` | form buat dosen + tabel akun staf | administrator | sekali saat halaman `/akses` dimuat |
@@ -435,8 +442,11 @@ dibaca dari database dan dibatasi ke kelas dosen yang sedang login.
 
 Konvensi:
 
-- **Sukses POST** → HTML (form bersih) + header `HX-Trigger` JSON, mis.
-  `{"toast":{"message":"Mahasiswa X berhasil ditambahkan."},"student-dialog-close":true,"roster-changed":true}`.
+- **Sukses tambah mahasiswa** → header `HX-Trigger-After-Swap` mengirim
+  `student-created`; browser memuat ulang roster dengan kelas mahasiswa baru,
+  lalu menutup dialog setelah swap roster selesai. Ini mencegah aksi enrollment
+  sebelum baris mahasiswa tersedia.
+- **Sukses POST lainnya** → HTML + header `HX-Trigger` JSON untuk toast/notifikasi.
   Enrollment, hapus mahasiswa, dan aksi akun dosen mengembalikan fragmen yang
   sama (roster / akun) dengan pesan sukses atau gagal di atas tabel.
 - **Hapus** memakai `hx-confirm` (dialog konfirmasi browser) sebelum request

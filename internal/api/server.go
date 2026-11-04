@@ -1201,7 +1201,7 @@ func EnrollErrorMessage(err error, detail map[string]any) string {
 		conflict, _ := detail["conflictNim"].(string)
 		return fmt.Sprintf("Wajah%s sudah terdaftar atas NIM %s; enrollment dibatalkan.", photo, conflict)
 	case errors.Is(err, ErrFaceService):
-		return "Enrollment gagal; pastikan service Python dan model wajah aktif."
+		return "Face Service gagal memproses enrollment" + photo + ". Coba lagi; jika berulang, periksa log Go dan Python."
 	}
 	return "Enrollment gagal."
 }

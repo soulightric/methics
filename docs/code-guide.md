@@ -95,10 +95,14 @@ POST /partials/mahasiswa/students
   → Partials.createStudent → api.Server.CreateStudent
 ```
 
-Sukses **tidak** mengembalikan JSON, tapi HTML form + header `HX-Trigger`
-berisi event (`toast`, `student-dialog-close`, `roster-changed`). Gagal
-validasi mengembalikan **HTTP 200** dengan pesan di dalam form (error inline),
-bukan status 4xx.
+Sukses **tidak** mengembalikan JSON, tapi HTML form + header
+`HX-Trigger-After-Swap` dengan event `student-created`. `static/js/app.js`
+mengarahkan filter ke kelas mahasiswa baru, memuat ulang roster secara
+eksplisit, dan baru menutup dialog setelah fragment roster selesai di-swap.
+Request roster bersaing dibatalkan/ditahan selama langkah ini, jadi pengguna
+tidak bisa mencoba enrollment sebelum baris mahasiswa tersedia. Gagal validasi
+mengembalikan **HTTP 200** dengan pesan di dalam form (error inline), bukan
+status 4xx.
 
 ### 3.3 Scan perangkat ESP32
 

@@ -377,6 +377,7 @@ type studentFormData struct {
 	NIM     string
 	ClassID string
 	Classes []api.ClassRow
+	Notice  string
 	Error   string
 }
 
@@ -435,13 +436,20 @@ func (p *Partials) createStudent(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	trigger, _ := json.Marshal(map[string]any{
-		"toast":                map[string]any{"message": fmt.Sprintf("Mahasiswa %s berhasil ditambahkan.", name)},
-		"student-dialog-close": true,
-		"roster-changed":       true,
+	trigger, err := json.Marshal(map[string]any{
+		"student-created": map[string]string{
+			"message": fmt.Sprintf("Mahasiswa %s berhasil ditambahkan.", name),
+			"classId": strings.ToUpper(classID),
+		},
 	})
-	w.Header().Set("HX-Trigger", string(trigger))
-	p.studentForm(w, r, principal, studentFormData{})
+	if err != nil {
+		http.Error(w, "Gagal menyiapkan respons pendaftaran mahasiswa.", http.StatusInternalServerError)
+		return
+	}
+	w.Header().Set("HX-Trigger-After-Swap", string(trigger))
+	p.studentForm(w, r, principal, studentFormData{
+		Notice: "Mahasiswa berhasil disimpan. Menyiapkan roster sebelum enrollment...",
+	})
 }
 
 func (p *Partials) enrollFace(w http.ResponseWriter, r *http.Request) {
@@ -465,11 +473,6 @@ func (p *Partials) enrollFace(w http.ResponseWriter, r *http.Request) {
 		notice = fmt.Sprintf("Template wajah untuk %s berhasil diproses dari %d foto.", nim, len(images))
 	}
 
-	data, err := p.mahasiswaRoster(ctx, principal, r.FormValue("q"), r.FormValue("class"), notice, errMessage)
-	if err != nil {
-		http.Error(w, "Gagal memuat roster mahasiswa.", http.StatusInternalServerError)
-		return
-	}
 	toastMessage := notice
 	if errMessage != "" {
 		toastMessage = errMessage
@@ -486,6 +489,11 @@ func (p *Partials) enrollFace(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		w.Header().Set("HX-Trigger", string(trigger))
+	}
+	data, err := p.mahasiswaRoster(ctx, principal, r.FormValue("q"), r.FormValue("class"), notice, errMessage)
+	if err != nil {
+		http.Error(w, "Gagal memuat roster mahasiswa.", http.StatusInternalServerError)
+		return
 	}
 	p.render(w, "mahasiswa_fragment", data)
 }

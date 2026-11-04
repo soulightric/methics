@@ -8,6 +8,7 @@
         data-lucide="x"></i></button>
   </div>
   <div class="dialog-body">
+    {{if .Notice}}<p class="inline-alert success" role="status">{{.Notice}}</p>{{end}}
     {{if .Error}}<p class="field-error" role="alert">{{.Error}}</p>{{end}}
     <label class="field">Nama lengkap<input name="name" required maxlength="120" autocomplete="name"
         placeholder="Nama mahasiswa" value="{{.Name}}"></label>

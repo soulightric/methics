@@ -73,6 +73,9 @@
 .table-title { margin: 0; font: 600 15px/1.3 "Space Grotesk", sans-serif; }
 .face-enroll-button { min-height: 29px; padding: 0 8px; font-size: 10px; }
 .face-enroll-button i { width: 13px; height: 13px; }
+.face-enroll-status { display: none; }
+.face-enroll-button.htmx-request .face-enroll-status { display: inline; }
+.face-enroll-button.htmx-request { opacity: .7; pointer-events: none; }
 .face-ready { color: var(--green); font-size: 10px; font-weight: 700; }
 .access-card { border: 1px solid var(--line); border-radius: 8px; background: white; padding: 15px; }
 .access-card-top { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }

@@ -163,6 +163,11 @@ Request enrollment juga mendapat batas baca/tulis sendiri **3 menit**
 (`api.EnrollRequestTimeout`), menggantikan `ReadTimeout`/`WriteTimeout`
 server 15 detik. Foto enrollment dikirim ke Python secara paralel dengan
 batas dua inferensi sekaligus; unggahan foto ke Garage juga paralel.
+Python mencatat `Registration request received`, `Registration completed`,
+atau foto yang gagal dideteksi/didekode (tanpa mencatat gambar atau identitas
+mahasiswa). Go mencatat hasil batch `enrollment … berhasil/gagal (N foto,
+durasi)`. Karena penyimpanan template di Go dilakukan setelah semua response
+foto lolos validasi, batch gagal tidak menulis sebagian embedding.
 
 Sisi Python: lihat `services/face/src/config.py` (`DET_MODEL_PATH`,
 `REC_MODEL_PATH`, `CONF_THRESHOLD`, `SIM_THRESHOLD`, `FACE_SERVICE_TOKEN`,

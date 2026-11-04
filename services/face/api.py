@@ -370,13 +370,23 @@ async def register_student(
             detail="Maximum of 6 registration images are allowed per request.",
         )
 
+    logger.info("Registration request received: %d image(s)", len(images))
     pipe = _get_active_pipeline()
     start = time.time()
     templates: List[TemplateEmbedding] = []
 
     for idx, img_file in enumerate(images, start=1):
         img_bytes = await img_file.read()
-        img_bgr = _decode_image(img_bytes)
+        try:
+            img_bgr = _decode_image(img_bytes)
+        except HTTPException as exc:
+            logger.warning(
+                "Registration failed while decoding image %d/%d (HTTP %d)",
+                idx,
+                len(images),
+                exc.status_code,
+            )
+            raise
 
         async with inference_slots:
             faces = await asyncio.to_thread(
@@ -385,6 +395,11 @@ async def register_student(
                 conf_threshold=conf_threshold,
             )
         if not faces:
+            logger.warning(
+                "Registration found no face in image %d/%d",
+                idx,
+                len(images),
+            )
             raise HTTPException(
                 status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
                 detail=(
@@ -407,6 +422,11 @@ async def register_student(
         )
 
     elapsed_ms = (time.time() - start) * 1000
+    logger.info(
+        "Registration completed: %d image(s) in %.2f ms",
+        len(templates),
+        elapsed_ms,
+    )
     return RegisterResponse(
         student_id=student_id,
         num_templates=len(templates),

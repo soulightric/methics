@@ -453,7 +453,7 @@ func (s *Server) enrollEmbeddings(ctx context.Context, studentID string, images 
 	}
 	registration, err := s.registerFaces(ctx, studentID, images)
 	if err != nil {
-		return nil, classifyFaceError(err)
+		return nil, err
 	}
 	embeddings := make([][]float64, 0, len(images))
 	confidences := make([]float64, 0, len(images))

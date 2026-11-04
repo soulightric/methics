@@ -345,7 +345,7 @@ dibatasi. Terapkan langkah-langkah hardening berikut sebelum layanan digunakan:
 | "Verifikasi Python" offline | face service belum berjalan, model belum selesai dimuat, atau `FACE_SERVICE_URL` salah (default port `8000`) |
 | Enrollment: "Tidak ada wajah yang terdeteksi (foto ke-N)" | foto ke-N buram/terlalu gelap/wajah terlalu kecil; ganti foto itu |
 | Enrollment: "Wajah (foto ke-N) tidak cocok dengan foto pertama" | foto ke-N orang lain, atau pose terlalu ekstrem (> ~45°); kurangi sudut atau buang foto itu (ambang `FACE_POSE_THRESHOLD`) |
-| Enrollment banyak foto gagal / koneksi terputus, 1–2 foto berhasil | versi lama: request melewati batas 15 detik server. Pakai Go terbaru (batas enrollment 3 menit, unggah Garage paralel) dan lihat log `enrollment … gagal (N foto, durasi)` |
+| Enrollment banyak foto gagal / notifikasi hilang | Go menyimpan semua embedding sekaligus hanya setelah seluruh foto berhasil; satu foto gagal membatalkan batch. Saat request bermasalah, UI sekarang menampilkan indikator/toast. Periksa log Go `enrollment … gagal (N foto, durasi)` dan log Python `Registration request received` / `Registration completed` untuk memastikan tiap request sampai ke Face Service. Jika koneksi terputus, muat ulang roster untuk memeriksa status template sebelum mencoba lagi. |
 | Enrollment: "Wajah … sudah terdaftar atas NIM …" | wajah mirip (≥ `FACE_SIM_THRESHOLD`) dengan template mahasiswa lain |
 | Enrollment / scan: `face_service_error` setelah memperbarui `services/face` | Go versi lama masih memanggil `POST /detect` (sudah dihapus dari `api.py`); pakai Go terbaru yang memanggil `/embed` dan `/register` |
 | Perangkat "offline" | tidak ada ping/scan dalam 2 menit; lihat [docs/devices.md](docs/devices.md) §8 |
