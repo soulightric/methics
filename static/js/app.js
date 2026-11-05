@@ -14,7 +14,6 @@ let faceCapturedFiles = [];
 let faceCameraGeneration = 0;
 let facePhotoCapturePending = false;
 let faceEnrollmentPending = false;
-let faceCameraPermissionRequest = null;
 
 const faceCameraDialog = document.querySelector('#faceEnrollmentDialog');
 const faceCameraVideo = document.querySelector('#faceCameraVideo');
@@ -58,29 +57,24 @@ function stopFaceCamera() {
   if (faceCameraStatus) faceCameraStatus.textContent = 'Izinkan akses kamera untuk memulai.';
 }
 
-function requestFaceCameraPermissionOnStudentsPage() {
-  if (document.body.dataset.page !== 'mahasiswa' || document.body.dataset.role !== 'administrator') return null;
-  if (!navigator.mediaDevices?.getUserMedia) {
-    toast('Kamera memerlukan HTTPS dan browser yang mendukung akses kamera.', true);
-    return null;
+function faceCameraErrorMessage(error) {
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    return 'Browser tidak mengizinkan kamera pada alamat ini. Pastikan memakai HTTPS dengan sertifikat valid (localhost hanya untuk perangkat lokal).';
   }
-  if (faceCameraPermissionRequest) return faceCameraPermissionRequest;
-  faceCameraPermissionRequest = navigator.mediaDevices.getUserMedia({
-    audio: false,
-    video: { facingMode: { ideal: 'user' } },
-  }).then((stream) => {
-    stream.getTracks().forEach((track) => track.stop());
-    return true;
-  }).catch((error) => {
-    const message = error.name === 'NotAllowedError'
-      ? 'Izin kamera belum diberikan. Izinkan kamera di browser agar enrollment wajah dapat digunakan.'
-      : error.name === 'NotFoundError'
-        ? 'Tidak ditemukan kamera pada perangkat ini.'
-        : error.message || 'Kamera gagal diakses.';
-    toast(message, true);
-    return false;
-  });
-  return faceCameraPermissionRequest;
+  const policy = document.permissionsPolicy || document.featurePolicy;
+  if (policy?.allowsFeature && !policy.allowsFeature('camera')) {
+    return 'Kebijakan Permissions-Policy pada server atau proxy memblokir kamera untuk website ini.';
+  }
+  if (error.name === 'NotAllowedError' || error.name === 'SecurityError') {
+    return 'Izin kamera ditolak atau diblokir. Izinkan kamera untuk origin website ini pada pengaturan browser, lalu periksa juga izin kamera di sistem operasi.';
+  }
+  if (error.name === 'NotFoundError' || error.name === 'OverconstrainedError') {
+    return 'Tidak ditemukan kamera yang dapat digunakan pada perangkat ini.';
+  }
+  if (error.name === 'NotReadableError') {
+    return 'Kamera sedang digunakan aplikasi lain atau diblokir sistem operasi. Tutup aplikasi tersebut lalu coba lagi.';
+  }
+  return error.message || 'Kamera gagal diakses.';
 }
 
 async function startFaceCamera(deviceId = '', generation = faceCameraGeneration) {
@@ -142,8 +136,18 @@ async function openFaceEnrollment(button) {
     toast('Kontrol kamera enrollment tidak tersedia. Muat ulang halaman dan coba lagi.', true);
     return;
   }
-  if (!navigator.mediaDevices?.getUserMedia) {
-    toast('Akses kamera memerlukan HTTPS (atau localhost) dan browser yang mendukung kamera.', true);
+  if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
+    const message = faceCameraErrorMessage(new Error('secure context unavailable'));
+    faceCameraStatus.textContent = message;
+    toast(message, true);
+    return;
+  }
+
+  const policy = document.permissionsPolicy || document.featurePolicy;
+  if (policy?.allowsFeature && !policy.allowsFeature('camera')) {
+    const message = 'Kebijakan Permissions-Policy pada server atau proxy memblokir kamera untuk website ini.';
+    faceCameraStatus.textContent = message;
+    toast(message, true);
     return;
   }
 
@@ -157,8 +161,6 @@ async function openFaceEnrollment(button) {
   faceCameraStatus.textContent = 'Meminta izin akses kamera...';
   faceCameraDialog.showModal();
   try {
-    await faceCameraPermissionRequest;
-    if (generation !== faceCameraGeneration) return;
     const started = await startFaceCamera('', generation);
     if (!started || generation !== faceCameraGeneration) return;
     await loadFaceCameraOptions();
@@ -166,11 +168,7 @@ async function openFaceEnrollment(button) {
     faceCameraStatus.textContent = 'Kamera siap. Ambil 1–6 foto dengan pose berbeda.';
   } catch (error) {
     if (generation !== faceCameraGeneration) return;
-    const message = error.name === 'NotAllowedError'
-      ? 'Izin kamera ditolak. Izinkan kamera di pengaturan browser lalu coba lagi.'
-      : error.name === 'NotFoundError'
-        ? 'Tidak ditemukan kamera pada perangkat ini.'
-        : error.message || 'Kamera gagal dibuka.';
+    const message = faceCameraErrorMessage(error);
     faceCameraStatus.textContent = message;
     toast(message, true);
   }
@@ -529,5 +527,3 @@ document.addEventListener('click', (event) => {
     document.querySelector('#studentDialog')?.close();
   }
 });
-
-requestFaceCameraPermissionOnStudentsPage();
