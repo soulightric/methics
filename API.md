@@ -453,12 +453,14 @@ Konvensi:
   Enrollment, hapus mahasiswa, dan aksi akun dosen mengembalikan fragmen yang
   sama (roster / akun) dengan pesan sukses atau gagal di atas tabel.
 - Enrollment wajah dimulai dari kamera pada perangkat administrator. Browser
-  meminta izin kamera, menyediakan pilihan perangkat jika lebih dari satu
-  kamera tersedia, lalu mengirim 1–6 foto JPEG langsung sebagai satu request
-  multipart eksplisit ke endpoint yang sama. UI menunggu respons dan refresh
-  roster, serta mempertahankan foto jika request gagal agar dapat dicoba ulang.
-  Log Go membedakan request yang masuk dan kegagalan parsing sebelum Face
-  Service. Kamera browser memerlukan HTTPS (localhost diizinkan).
+  mencoba meminta izin kamera saat halaman Mahasiswa dibuka; stream untuk
+  permintaan izin langsung dihentikan. Browser tetap dapat menolak/menunggu
+  izin pengguna. Dialog enrollment menyediakan pilihan perangkat jika lebih
+  dari satu kamera tersedia, lalu mengirim 1–6 foto JPEG langsung sebagai satu
+  request multipart eksplisit ke endpoint yang sama. UI menunggu respons dan
+  refresh roster, serta mempertahankan foto jika request gagal agar dapat
+  dicoba ulang. Log Go membedakan request yang masuk dan kegagalan parsing
+  sebelum Face Service. Kamera browser memerlukan HTTPS (localhost diizinkan).
 - **Hapus** memakai `hx-confirm` (dialog konfirmasi browser) sebelum request
   `DELETE` dikirim.
 - **Gagal validasi** → **HTTP 200** dengan pesan inline di form/region, bukan

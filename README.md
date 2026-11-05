@@ -119,6 +119,10 @@ reverse proxy dan infrastruktur deployment.
 | `/login` | login staf | publik |
 | `/eggs` | halaman putih; ketuk gambar telur untuk memutar musik | publik |
 
+Di halaman Mahasiswa, administrator diminta memberi izin kamera saat halaman
+dibuka. Kamera hanya aktif selama permintaan izin tersebut atau ketika dialog
+enrollment digunakan; browser dan HTTPS tetap menentukan akses perangkat.
+
 Dosen hanya melihat kelas yang ditugaskan (`users.class_ids`). Dosen yang
 membuat kelas otomatis mendapat penugasan kelas itu; penghapusan hanya tersedia
 untuk kelas dalam cakupannya dan ditolak selama masih dipakai mahasiswa,

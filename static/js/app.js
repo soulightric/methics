@@ -14,6 +14,7 @@ let faceCapturedFiles = [];
 let faceCameraGeneration = 0;
 let facePhotoCapturePending = false;
 let faceEnrollmentPending = false;
+let faceCameraPermissionRequest = null;
 
 const faceCameraDialog = document.querySelector('#faceEnrollmentDialog');
 const faceCameraVideo = document.querySelector('#faceCameraVideo');
@@ -55,6 +56,31 @@ function stopFaceCamera() {
   faceEnrollmentPending = false;
   clearFaceCaptures();
   if (faceCameraStatus) faceCameraStatus.textContent = 'Izinkan akses kamera untuk memulai.';
+}
+
+function requestFaceCameraPermissionOnStudentsPage() {
+  if (document.body.dataset.page !== 'mahasiswa' || document.body.dataset.role !== 'administrator') return null;
+  if (!navigator.mediaDevices?.getUserMedia) {
+    toast('Kamera memerlukan HTTPS dan browser yang mendukung akses kamera.', true);
+    return null;
+  }
+  if (faceCameraPermissionRequest) return faceCameraPermissionRequest;
+  faceCameraPermissionRequest = navigator.mediaDevices.getUserMedia({
+    audio: false,
+    video: { facingMode: { ideal: 'user' } },
+  }).then((stream) => {
+    stream.getTracks().forEach((track) => track.stop());
+    return true;
+  }).catch((error) => {
+    const message = error.name === 'NotAllowedError'
+      ? 'Izin kamera belum diberikan. Izinkan kamera di browser agar enrollment wajah dapat digunakan.'
+      : error.name === 'NotFoundError'
+        ? 'Tidak ditemukan kamera pada perangkat ini.'
+        : error.message || 'Kamera gagal diakses.';
+    toast(message, true);
+    return false;
+  });
+  return faceCameraPermissionRequest;
 }
 
 async function startFaceCamera(deviceId = '', generation = faceCameraGeneration) {
@@ -131,6 +157,8 @@ async function openFaceEnrollment(button) {
   faceCameraStatus.textContent = 'Meminta izin akses kamera...';
   faceCameraDialog.showModal();
   try {
+    await faceCameraPermissionRequest;
+    if (generation !== faceCameraGeneration) return;
     const started = await startFaceCamera('', generation);
     if (!started || generation !== faceCameraGeneration) return;
     await loadFaceCameraOptions();
@@ -329,6 +357,7 @@ if (htmx) {
       event.preventDefault();
     }
   });
+
   document.body.addEventListener('htmx:responseError', (event) => {
     if (event.detail.xhr.status === 401) window.location.assign('/login');
   });
@@ -500,3 +529,5 @@ document.addEventListener('click', (event) => {
     document.querySelector('#studentDialog')?.close();
   }
 });
+
+requestFaceCameraPermissionOnStudentsPage();
