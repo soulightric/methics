@@ -34,16 +34,14 @@
         <td>
           <div class="row-actions">
           {{if eq $.Role "administrator"}}
-          <label class="button face-enroll-button"
-            title="Pilih 1–6 foto wajah dengan pose berbeda: depan, kiri, kanan, atas, bawah, senyum">
-            <i data-lucide="scan-face"></i>{{if .FaceEnrolled}}Enroll ulang{{else}}Enroll wajah{{end}}
-            <input type="file" name="images" accept="image/jpeg,image/png" multiple hidden
-              class="face-enroll-upload"
-              hx-post="/partials/mahasiswa/{{.StudentNIM}}/face-template" hx-encoding="multipart/form-data"
-              hx-include="#studentFilters" hx-target="#rosterRegion" hx-swap="innerHTML" hx-trigger="change"
-              hx-indicator="closest label">
-            <span class="face-enroll-status" role="status" aria-live="polite"></span>
-          </label>
+          <div class="face-enroll-control">
+            <button class="button face-enroll-button face-enroll-launch" type="button"
+              data-student-nim="{{.StudentNIM}}"
+              data-enroll-url="/partials/mahasiswa/{{.StudentNIM}}/face-template"
+              title="Ambil 1–6 foto wajah dengan pose berbeda menggunakan kamera">
+              <i data-lucide="camera"></i>{{if .FaceEnrolled}}Enroll ulang{{else}}Enroll wajah{{end}}
+            </button>
+          </div>
           {{else if .FaceEnrolled}}<span>Terdaftar</span>{{else}}<span>-</span>{{end}}
           {{if .FaceImageURL}}
           <a class="button" href="{{.FaceImageURL}}" target="_blank" rel="noopener"

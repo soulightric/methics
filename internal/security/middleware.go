@@ -127,8 +127,8 @@ func SecurityHeaders(next http.Handler) http.Handler {
 		header.Set("X-Content-Type-Options", "nosniff")
 		header.Set("Referrer-Policy", "same-origin")
 		header.Set("X-Frame-Options", "DENY")
-		header.Set("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-		header.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; img-src 'self' https://proxy-assets.etherthink.xyz data:; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'")
+		header.Set("Permissions-Policy", "camera=(self), microphone=(), geolocation=()")
+		header.Set("Content-Security-Policy", "default-src 'self'; script-src 'self'; style-src 'self' https://fonts.googleapis.com 'unsafe-inline'; img-src 'self' blob: https://proxy-assets.etherthink.xyz data:; font-src 'self' https://fonts.gstatic.com data:; connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'")
 		if strings.HasPrefix(r.URL.Path, "/") && !strings.HasPrefix(r.URL.Path, "/static/") {
 			header.Set("Cache-Control", "no-store")
 		}

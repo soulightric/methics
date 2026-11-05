@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"html/template"
+	"log"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -439,7 +440,6 @@ func (p *Partials) createStudent(w http.ResponseWriter, r *http.Request) {
 	trigger, err := json.Marshal(map[string]any{
 		"student-created": map[string]string{
 			"message": fmt.Sprintf("Mahasiswa %s berhasil ditambahkan.", name),
-			"classId": strings.ToUpper(classID),
 		},
 	})
 	if err != nil {
@@ -463,10 +463,12 @@ func (p *Partials) enrollFace(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx := r.Context()
 	nim := strings.ToUpper(strings.TrimSpace(r.PathValue("nim")))
+	log.Printf("enrollment request received for %s", nim)
 
 	var notice, errMessage string
 	if images, err := api.ReadEnrollImages(w, r); err != nil {
 		errMessage = err.Error()
+		log.Printf("enrollment %s request rejected before face service: %v", nim, err)
 	} else if result, err := p.server.EnrollFace(ctx, nim, images); err != nil {
 		errMessage = api.EnrollErrorMessage(err, result)
 	} else {

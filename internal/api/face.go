@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"math"
 	"mime/multipart"
 	"net/http"
@@ -259,6 +260,7 @@ func (s *Server) registerFaces(ctx context.Context, studentID string, images []E
 	errs := make([]error, len(files))
 	started := time.Now()
 	timeout := s.config.FaceServiceTimeout * time.Duration(max((len(files)+1)/2, 1))
+	log.Printf("sending %d face registration request(s) for student %s", len(files), studentID)
 	var group sync.WaitGroup
 	for i := range files {
 		group.Add(1)

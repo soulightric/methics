@@ -152,10 +152,15 @@ type StaffSummary struct {
 	CreatedAt   time.Time
 }
 
-// ListStaff mengembalikan semua akun staf, administrator lebih dulu.
+// ListStaff mengembalikan semua akun staf, administrator lebih dulu lalu akun
+// terbaru agar akun yang baru dibuat langsung terlihat.
 func (db *Database) ListStaff(ctx context.Context) ([]StaffSummary, error) {
 	cursor, err := db.Collection("users").Find(ctx, bson.M{},
-		options.Find().SetSort(bson.D{{Key: "role", Value: 1}, {Key: "username", Value: 1}}).
+		options.Find().SetSort(bson.D{
+			{Key: "role", Value: 1},
+			{Key: "created_at", Value: -1},
+			{Key: "username", Value: 1},
+		}).
 			SetProjection(bson.M{"password_hash": 0}))
 	if err != nil {
 		return nil, err

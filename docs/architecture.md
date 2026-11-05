@@ -85,7 +85,7 @@ Dashboard menganggap perangkat online bila `last_seen` < 2 menit.
 ### Enrollment wajah (admin)
 
 ```text
-Admin ──POST /partials/mahasiswa/{nim}/face-template (multipart, 1–6 foto pose)──► Go
+Admin ──kamera browser (HTTPS) → 1–6 foto pose ──POST /partials/mahasiswa/{nim}/face-template──► Go
                                                                    ├── Python /register → embedding per foto
                                                                    ├── Go: cek tiap foto ada wajah, satu orang, belum terdaftar di NIM lain
                                                                    ├── MongoDB: face_templates.encodings (1–6 vektor)

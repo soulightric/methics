@@ -426,7 +426,7 @@ Filter `class` dari dosen yang bukan kelasnya menghasilkan data kosong.
 | `GET /partials/mahasiswa?q=&class=` | tabel roster (+ ringkasan via `hx-swap-oob`) | staf | `load, every 15s`, ketik, ganti filter, event `roster-changed` |
 | `GET /partials/mahasiswa/form` | form dialog pendaftaran | administrator | sekali saat halaman dimuat |
 | `POST /partials/mahasiswa/students` | tambah mahasiswa (form-urlencoded `name`, `nim`, `classId`); dialog tetap terbuka sampai roster memuat mahasiswa baru | administrator | — |
-| `POST /partials/mahasiswa/{nim}/face-template` | enrollment / enrollment ulang wajah (multipart `images`, 1–6 foto, dikirim otomatis saat file dipilih; `q`/`class` ikut lewat `hx-include` agar filter tetap) | administrator | — |
+| `POST /partials/mahasiswa/{nim}/face-template` | enrollment / enrollment ulang wajah (multipart `images`, 1–6 foto dari kamera browser; filter `q`/`class` diteruskan sebagai query) | administrator | — |
 | `DELETE /partials/mahasiswa/{nim}` | hapus mahasiswa + data wajah, foto, riwayat scan (konfirmasi `hx-confirm`; `q`/`class` lewat `hx-include`) → roster | administrator | — |
 | `GET /partials/akses/staff` | form buat dosen + tabel akun staf | administrator | sekali saat halaman `/akses` dimuat |
 | `POST /partials/akses/lecturers` | buat akun dosen (form `username`, `displayName`, `password`, `classIds` berulang) → fragment akun | administrator | — |
@@ -443,12 +443,22 @@ dibaca dari database dan dibatasi ke kelas dosen yang sedang login.
 Konvensi:
 
 - **Sukses tambah mahasiswa** → header `HX-Trigger-After-Swap` mengirim
-  `student-created`; browser memuat ulang roster dengan kelas mahasiswa baru,
-  lalu menutup dialog setelah swap roster selesai. Ini mencegah aksi enrollment
-  sebelum baris mahasiswa tersedia.
+  `student-created`; browser mengosongkan pencarian, mengatur filter ke Semua
+  kelas, memuat ulang seluruh roster, lalu menutup dialog setelah swap selesai.
+  Ini memastikan mahasiswa baru dan semua mahasiswa lain tampil sebelum
+  enrollment.
+- Akun dosen yang berhasil dibuat langsung muncul bersama semua akun lain;
+  urutan daftar menampilkan akun terbaru lebih dahulu dalam role masing-masing.
 - **Sukses POST lainnya** → HTML + header `HX-Trigger` JSON untuk toast/notifikasi.
   Enrollment, hapus mahasiswa, dan aksi akun dosen mengembalikan fragmen yang
   sama (roster / akun) dengan pesan sukses atau gagal di atas tabel.
+- Enrollment wajah dimulai dari kamera pada perangkat administrator. Browser
+  meminta izin kamera, menyediakan pilihan perangkat jika lebih dari satu
+  kamera tersedia, lalu mengirim 1–6 foto JPEG langsung sebagai satu request
+  multipart eksplisit ke endpoint yang sama. UI menunggu respons dan refresh
+  roster, serta mempertahankan foto jika request gagal agar dapat dicoba ulang.
+  Log Go membedakan request yang masuk dan kegagalan parsing sebelum Face
+  Service. Kamera browser memerlukan HTTPS (localhost diizinkan).
 - **Hapus** memakai `hx-confirm` (dialog konfirmasi browser) sebelum request
   `DELETE` dikirim.
 - **Gagal validasi** → **HTTP 200** dengan pesan inline di form/region, bukan

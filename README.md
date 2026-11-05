@@ -111,7 +111,7 @@ reverse proxy dan infrastruktur deployment.
 | Route | Isi | Akses |
 | --- | --- | --- |
 | `/` | ringkasan absensi hari ini, status perangkat & face service | staf |
-| `/mahasiswa` | roster, pendaftaran & penghapusan mahasiswa, enrollment wajah 1–6 foto, lihat foto enrollment | staf (aksi tulis: administrator) |
+| `/mahasiswa` | roster, pendaftaran & penghapusan mahasiswa, enrollment wajah 1–6 foto langsung dari kamera perangkat, lihat foto enrollment | staf (aksi tulis: administrator) |
 | `/kelas` | kehadiran dan enrollment per kelas; tambah/hapus kelas | staf (pengelolaan kelas: administrator dan dosen) |
 | `/laporan` | rekap status scan hari ini, kehadiran per kelas, 50 scan terbaru, cetak | staf |
 | `/logs` | log pemindaian seluruh waktu (200 terbaru) dengan filter status, kelas, pencarian, dan tautan foto capture | staf |
@@ -253,7 +253,7 @@ Detail di [API.md](API.md). Ringkasan:
 - `GET /api/v1/health` — publik
 - `GET /api/v1/dashboard`, `/classes`, `/reports` — session staf
 - `POST /api/v1/students` — administrator + CSRF (JSON)
-- `POST /api/v1/students/{nim}/face-template` — administrator + CSRF (multipart `images`, 1–6 foto)
+- `POST /api/v1/students/{nim}/face-template` — administrator + CSRF (multipart `images`, 1–6 foto JPEG dari kamera browser; halaman kamera memerlukan HTTPS atau localhost)
 - `DELETE /api/v1/students/{nim}` — administrator + CSRF (hapus mahasiswa + data wajah, foto, riwayat scan)
 - `GET|POST /api/v1/staff`, `DELETE /api/v1/staff/{id}` — administrator + CSRF (akun dosen)
 - `POST /api/v1/scans` — perangkat (multipart `device_id`, `class_id` opsional, `captured_at`, `liveness_passed`, 1–6 `image`; bearer + HMAC)
