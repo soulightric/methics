@@ -144,7 +144,13 @@ func (s *Server) DeviceHandler() http.Handler {
 }
 
 func (s *Server) StaticHandler(staticDir string) http.Handler {
-	return http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir)))
+	files := http.StripPrefix("/static/", http.FileServer(http.Dir(staticDir)))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(strings.ToLower(r.URL.Path), ".js") {
+			w.Header().Set("Cache-Control", "no-cache")
+		}
+		files.ServeHTTP(w, r)
+	})
 }
 
 func (s *Server) dashboard(w http.ResponseWriter, r *http.Request) {

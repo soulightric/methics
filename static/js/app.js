@@ -136,6 +136,15 @@ async function openFaceEnrollment(button) {
     toast('Kontrol kamera enrollment tidak tersedia. Muat ulang halaman dan coba lagi.', true);
     return;
   }
+  const generation = ++faceCameraGeneration;
+  clearFaceCaptures();
+  faceCameraNim = nim;
+  faceCameraEnrollURL = enrollURL;
+  document.querySelector('#faceEnrollmentStudent').textContent = `Mahasiswa NIM ${nim}`;
+  faceCameraSelect.disabled = true;
+  faceCameraSelect.replaceChildren(new Option('Memuat kamera...', ''));
+  faceCameraStatus.textContent = 'Meminta izin akses kamera...';
+  faceCameraDialog.showModal();
   if (!window.isSecureContext || !navigator.mediaDevices?.getUserMedia) {
     const message = faceCameraErrorMessage(new Error('secure context unavailable'));
     faceCameraStatus.textContent = message;
@@ -151,15 +160,6 @@ async function openFaceEnrollment(button) {
     return;
   }
 
-  const generation = ++faceCameraGeneration;
-  clearFaceCaptures();
-  faceCameraNim = nim;
-  faceCameraEnrollURL = enrollURL;
-  document.querySelector('#faceEnrollmentStudent').textContent = `Mahasiswa NIM ${nim}`;
-  faceCameraSelect.disabled = true;
-  faceCameraSelect.replaceChildren(new Option('Memuat kamera...', ''));
-  faceCameraStatus.textContent = 'Meminta izin akses kamera...';
-  faceCameraDialog.showModal();
   try {
     const started = await startFaceCamera('', generation);
     if (!started || generation !== faceCameraGeneration) return;
